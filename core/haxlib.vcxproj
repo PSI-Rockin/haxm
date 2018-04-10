@@ -134,8 +134,7 @@
   </PropertyGroup>
   <!-- Needed by any VcxProj -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings">
-  </ImportGroup>
+  <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Win7 Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
   </ImportGroup>
@@ -180,31 +179,49 @@
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+    <MASM>
+      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
+    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Debug|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+    <MASM>
+      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
+    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Release|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+    <MASM>
+      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
+    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8.1 Debug|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+    <MASM>
+      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
+    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8 Release|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+    <MASM>
+      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
+    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8.1 Release|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+    <MASM>
+      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
+    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8 Debug|x64'">
     <ClCompile>
@@ -239,6 +256,8 @@
   <ItemGroup>
     <!-- We only add items (e.g. form ClSourceFiles) that do not already exist (e.g in the ClCompile list), this avoids duplication -->
     <ClCompile Include="@(ClSourceFiles)" Exclude="@(ClCompile)" />
+    <ClCompile Include="emulate.c" />
+    <MASM Include="emulate_ops.asm" />
     <ResourceCompile Include="@(RcSourceFiles)" Exclude="@(ResourceCompile)" />
     <Midl Include="@(IdlSourceFiles)" Exclude="@(Midl)" />
     <MessageCompile Include="@(McSourceFiles)" Exclude="@(MessageCompile)" />
@@ -269,4 +288,5 @@
   </ItemGroup>
   <!-- /Necessary to pick up proper files from local directory when in the IDE-->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
 </Project>
