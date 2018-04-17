@@ -1963,16 +1963,6 @@ union sib_byte {
 #define OPCODE_XOR_IOMEM_TO_REG     28
 #define OPCODE_NOT_IOMEM            29  // not supported yet
 
-#define PF_SEG_OVERRIDE_NONE        0
-// Each of the following denotes the presence of a segment override prefix
-//   http://wiki.osdev.org/X86-64_Instruction_Encoding
-#define PF_SEG_OVERRIDE_CS          1  // 0x2e
-#define PF_SEG_OVERRIDE_SS          2  // 0x36
-#define PF_SEG_OVERRIDE_DS          3  // 0x3e
-#define PF_SEG_OVERRIDE_ES          4  // 0x26
-#define PF_SEG_OVERRIDE_FS          5  // 0x64
-#define PF_SEG_OVERRIDE_GS          6  // 0x65
-
 // An instruction can have up to 4 legacy prefixes:
 //   http://wiki.osdev.org/X86-64_Instruction_Encoding
 #define INSTR_MAX_LEGACY_PF         4
@@ -2012,6 +2002,53 @@ static bool is_mmio_address(struct vcpu_t *vcpu, paddr_t gpa)
     }
 }
 
+static int vcpu_emulate_insn(struct vcpu_t *vcpu)
+{
+    em_mode_t mode;
+    em_context_t *em_ctx = vcpu->emulate_ctxt;
+    uint8 instr[INSTR_MAX_LEN] = {0};
+    uint64 cs_base = vcpu->state->_cs.base;
+    uint64 rip = vcpu->state->_rip;
+    uint64 va;
+
+    // Detect guest mode
+    if (!(vcpu->state->_cr0 & CR0_PE))
+        mode = EM_MODE_REAL;
+    else if (vcpu->state->_cs.long_mode == 1)
+        mode = EM_MODE_PROT64;
+    else if (vcpu->state->_cs.operand_size == 1)
+        mode = EM_MODE_PROT32;
+    else if (vcpu->state->_cs.operand_size == 0)
+        mode = EM_MODE_PROT16;
+    em_ctx->mode = mode;
+
+    // Fetch the instruction at guest CS:IP = CS.Base + IP, omitting segment
+    // limit and privilege checks
+    va = (mode == EM_MODE_PROT64) ? rip : cs_base + rip;
+#ifdef CONFIG_HAX_EPT2
+    if (mmio_fetch_instruction(vcpu, va, instr, INSTR_MAX_LEN)) {
+        hax_panic_vcpu(vcpu, "%s: mmio_fetch_instruction() failed: vcpu_id=%u,"
+            " gva=0x%llx (CS:IP=0x%llx:0x%llx)\n",
+            __func__, vcpu->vcpu_id, va, cs_base, rip);
+        dump_vmcs(vcpu);
+        return -1;
+    }
+#else  // !CONFIG_HAX_EPT2
+    if (!vcpu_read_guest_virtual(vcpu, va, &instr, INSTR_MAX_LEN, INSTR_MAX_LEN,
+        0)) {
+        hax_panic_vcpu(vcpu, "Error reading instruction at 0x%llx for decoding"
+            " (CS:IP=0x%llx:0x%llx)\n", va, cs_base, rip);
+        dump_vmcs(vcpu);
+        return -1;
+    }
+#endif  // CONFIG_HAX_EPT2
+
+    em_decode_insn(em_ctx, instr);
+    em_emulate_insn(em_ctx);
+    return 0;
+}
+
+#if 0
 // Returns 0 on success, < 0 on error, > 0 if HAX_EXIT_MMIO is necessary.
 static int vcpu_simple_decode(struct vcpu_t *vcpu, struct decode *dc)
 {
@@ -2613,6 +2650,7 @@ static int hax_setup_fastmmio(struct vcpu_t *vcpu, struct hax_tunnel *htun,
     advance_rip_step(vcpu, advance ? dec->advance : 0);
     return 0;
 }
+#endif
 
 static int exit_exc_nmi(struct vcpu_t *vcpu, struct hax_tunnel *htun)
 {
@@ -2639,6 +2677,8 @@ static int exit_exc_nmi(struct vcpu_t *vcpu, struct hax_tunnel *htun)
                 int ret;
                 vaddr_t cr2 = vmx(vcpu, exit_qualification).address;
 
+                return vcpu_emulate_insn(vcpu);
+#if 0
                 ret = vcpu_simple_decode(vcpu, &dec);
                 if (ret < 0) {
                     // vcpu_simple_decode() has called hax_panic_vcpu()
@@ -2653,6 +2693,7 @@ static int exit_exc_nmi(struct vcpu_t *vcpu, struct hax_tunnel *htun)
                         return HAX_RESUME;
                     }
                 }
+#endif
                 return HAX_EXIT;
             } else {
                 hax_panic_vcpu(vcpu, "Page fault shouldn't happen when EPT is "
@@ -3995,6 +4036,8 @@ static int exit_ept_violation(struct vcpu_t *vcpu, struct hax_tunnel *htun)
 mmio_handler:
 #endif
 
+    vcpu_emulate_insn(vcpu);
+#if 0
     ret = vcpu_simple_decode(vcpu, &dec);
     if (ret < 0) {
         // vcpu_simple_decode() has called hax_panic_vcpu()
@@ -4011,6 +4054,7 @@ mmio_handler:
             return HAX_RESUME;
         }
     }
+#endif
     return HAX_EXIT;
 }
 

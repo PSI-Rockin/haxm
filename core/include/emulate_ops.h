@@ -2,7 +2,7 @@
 #define HAX_CORE_EMULATE_OPS_H_
 
 /* Instruction handlers */
-typedef void(*em_handler_t);
+typedef void(em_handler_t)();
 em_handler_t em_not;
 em_handler_t em_neg;
 em_handler_t em_inc;

@@ -31,7 +31,7 @@ fop64 macro instruction
 endm
 
 ; Calling convention
-reg_dst macro width
+reg_dst macro width:=<0>
     ; Select based on width
     if width eq 8
         exitm <al>
@@ -49,7 +49,7 @@ reg_dst macro width
         exitm <eax>
     endif
 endm
-reg_src1 macro width
+reg_src1 macro width:=<0>
     ; Select based on width
     if width eq 8
         exitm <dl>
@@ -67,7 +67,7 @@ reg_src1 macro width
         exitm <edx>
     endif
 endm
-reg_src2 macro width
+reg_src2 macro width:=<0>
     ; Select based on width
     if width eq 8
         exitm <cl>
@@ -83,6 +83,14 @@ reg_src2 macro width
         exitm <rcx>
     else
         exitm <ecx>
+    endif
+endm
+reg_tmp macro
+    ; Select based on arch
+    ifdef rbx
+        exitm <rbx>
+    else
+        exitm <ebx>
     endif
 endm
 
@@ -177,16 +185,27 @@ fastop3d bextr
 fastop3d andn
 
 fastop_dispatch proc public op:PTR, src1:PTR, src2:PTR, dst:PTR, flags:PTR
-    push reg_src1(0)
-    push reg_src2(0)
-    mov reg_src1(0), src1
-    mov reg_src2(0), src2
+    push reg_tmp()
+    push reg_src1()
+    push reg_src2()
+    push reg_dst()
+    mov reg_tmp(), src1
+    mov reg_src1(), [reg_tmp()]
+    mov reg_tmp(), src2
+    mov reg_src2(), [reg_tmp()]
+    mov reg_tmp(), flags
+    push [reg_tmp()]
+    popf
     call op
     pushf
-    pop flags
-    mov dst, reg_dst(0)
-    pop reg_src2(0)
-    pop reg_src1(0)
+    mov reg_tmp(), flags
+    pop [reg_tmp()]
+    mov reg_tmp(), dst
+    mov [reg_tmp()], reg_dst()
+    pop reg_dst()
+    pop reg_src2()
+    pop reg_src1()
+    pop reg_tmp()
     ret
 fastop_dispatch endp
 
