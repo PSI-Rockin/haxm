@@ -218,7 +218,7 @@ struct vcpu_t {
     struct hax_vcpu_mem *iobuf_vcpumem;
     struct cvtlb prefetch[16];
 
-    struct em_context_t *emulate_ctxt;
+    struct em_context_t emulate_ctxt;
     struct vcpu_post_mmio post_mmio;
 #ifdef CONFIG_HAX_EPT2
     struct mmio_fetch_cache mmio_fetch;

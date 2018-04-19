@@ -55,6 +55,9 @@ fop64 macro instruction
 endm
 
 ; Calling convention
+;  - eax/rax - dest value
+;  - edx/rdx - src1 value
+;  - ecx/rcx - src2 value
 reg_dst macro width:=<0>
     ; Select based on width
     if width eq 8

@@ -37,6 +37,9 @@
 /* Access completed successfully */
 #define EM_CONTINUE        0
 
+typedef void(*em_operand_decoder_t)(struct em_context_t *ctxt,
+                                    struct em_operand_t *op);
+
 typedef enum {
     EM_MODE_REAL,    /* Real mode */
     EM_MODE_PROT16,  /* Protected mode (16-bit) */
@@ -46,10 +49,10 @@ typedef enum {
 
 typedef enum {
     OP_NONE,
-    OP_REG,
-    OP_MEM,
-    OP_IMM,
-    OP_ACC,
+    OP_REG,          /* Register operand */
+    OP_MEM,          /* Memory operand */
+    OP_IMM,          /* Immediate operand */
+    OP_ACC,          /* Accumulator: AL, AX, EAX, RAX */
 } em_operand_type_t;
 
 typedef struct em_operand_t {
@@ -57,36 +60,90 @@ typedef struct em_operand_t {
     em_operand_type_t type;
     union {
         struct operand_mem_t {
-            vaddr_t addr;
+            uint64_t addr;
             uint32_t segment;
         } mem;
-        uint32_t reg;
-        uint64_t value;
+        struct operand_reg_t {
+            uint32_t index;
+        } reg;
     };
+    uint64_t value;
 } em_operand_t;
 
 typedef struct em_opcode_t {
     em_handler_t* handler;
-    em_operand_type_t type_dst;
-    em_operand_type_t type_src1;
-    em_operand_type_t type_src2;
+    em_operand_decoder_t decode_dst;
+    em_operand_decoder_t decode_src1;
+    em_operand_decoder_t decode_src2;
     uint64_t flags;
 } em_opcode_t;
 
+/* Interface */
+#define REG_RAX   0
+#define REG_RCX   1
+#define REG_RDX   2
+#define REG_RBX   3
+#define REG_RSP   4
+#define REG_RBP   5
+#define REG_RSI   6
+#define REG_RDI   7
+#define REG_R8    8
+#define REG_R9    9
+#define REG_R10   10
+#define REG_R11   11
+#define REG_R12   12
+#define REG_R13   13
+#define REG_R14   14
+#define REG_R15   15
+
+typedef struct em_vcpu_ops_t {
+    uint64_t(*read_gpr)(void *vcpu, uint32_t reg_index);
+    void(*write_gpr)(void *vcpu, uint32_t reg_index, uint64_t value);
+} em_vcpu_ops_t;
+
 typedef struct em_context_t {
-    int mode;
+    void *vcpu;
+    const struct em_vcpu_ops_t *ops;
+
+    em_mode_t mode;
     int override_segment;
     int override_operand_size;
     int override_address_size;
     uint8_t *insn;
 
-    uint8_t rex_r;
-    uint8_t rex_w;
     const struct em_opcode_t *opcode;
     struct em_operand_t dst;
     struct em_operand_t src1;
     struct em_operand_t src2;
     uint32_t eflags;
+
+    /* Decoder */
+    union {
+        struct {
+            uint8_t b : 1;
+            uint8_t x : 1;
+            uint8_t r : 1;
+            uint8_t w : 1;
+            uint8_t   : 4;
+        };
+        uint8_t value;
+    } rex;
+    union {
+        struct {
+            uint8_t rm  : 3;
+            uint8_t reg : 3;
+            uint8_t mod : 2;
+        };
+        uint8_t value;
+    } modrm;
+    union {
+        struct {
+            uint8_t base  : 3;
+            uint8_t index : 3;
+            uint8_t scale : 2;
+        };
+        uint8_t value;
+    } sib;
 } em_context_t;
 
 int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn);

@@ -74,6 +74,7 @@ extern uint32 pw_reserved_bits_high_mask;
 
 static void vcpu_init(struct vcpu_t *vcpu);
 static void vcpu_prepare(struct vcpu_t *vcpu);
+static void vcpu_init_emulator(struct vcpu_t *vcpu);
 
 static void vmread_cr(struct vcpu_t *vcpu);
 static void vmwrite_cr(struct vcpu_t *vcpu);
@@ -469,6 +470,9 @@ struct vcpu_t *vcpu_create(struct vm_t *vm, void *vm_host, int vcpu_id)
     // The caller should get_vm thus no race with vm destroy
     hax_atomic_add(&vm->ref_count, 1);
     hax_mutex_unlock(vm->vm_lock);
+
+    // Initialize emulator
+    vcpu_init_emulator(vcpu);
 
     hax_debug("HAX: vcpu %d is created.\n", vcpu->vcpu_id);
     return vcpu;
@@ -2005,7 +2009,7 @@ static bool is_mmio_address(struct vcpu_t *vcpu, paddr_t gpa)
 static int vcpu_emulate_insn(struct vcpu_t *vcpu)
 {
     em_mode_t mode;
-    em_context_t *em_ctx = vcpu->emulate_ctxt;
+    em_context_t *em_ctx = &vcpu->emulate_ctxt;
     uint8 instr[INSTR_MAX_LEN] = {0};
     uint64 cs_base = vcpu->state->_cs.base;
     uint64 rip = vcpu->state->_rip;
@@ -2651,6 +2655,67 @@ static int hax_setup_fastmmio(struct vcpu_t *vcpu, struct hax_tunnel *htun,
     return 0;
 }
 #endif
+
+static uint64_t vcpu_read_gpr(struct vcpu_t *vcpu, uint32_t reg_index)
+{
+    switch (reg_index) {
+    case REG_RAX:  return vcpu->state->_rax;
+    case REG_RCX:  return vcpu->state->_rcx;
+    case REG_RDX:  return vcpu->state->_rdx;
+    case REG_RBX:  return vcpu->state->_rbx;
+    case REG_RSP:  return vcpu->state->_rsp;
+    case REG_RBP:  return vcpu->state->_rbp;
+    case REG_RSI:  return vcpu->state->_rsi;
+    case REG_RDI:  return vcpu->state->_rdi;
+    case REG_R8:   return vcpu->state->_r8;
+    case REG_R9:   return vcpu->state->_r9;
+    case REG_R10:  return vcpu->state->_r10;
+    case REG_R11:  return vcpu->state->_r11;
+    case REG_R12:  return vcpu->state->_r12;
+    case REG_R13:  return vcpu->state->_r13;
+    case REG_R14:  return vcpu->state->_r14;
+    case REG_R15:  return vcpu->state->_r15;
+    default:
+        hax_panic_vcpu(vcpu, "vcpu_read_gpr: Invalid register index\n");
+        return 0;
+    }
+}
+
+static void vcpu_write_gpr(struct vcpu_t *vcpu, uint32_t reg_index, uint64_t value)
+{
+    switch (reg_index) {
+    case REG_RAX:  vcpu->state->_rax = value; break;
+    case REG_RCX:  vcpu->state->_rcx = value; break;
+    case REG_RDX:  vcpu->state->_rdx = value; break;
+    case REG_RBX:  vcpu->state->_rbx = value; break;
+    case REG_RSP:  vcpu->state->_rsp = value; break;
+    case REG_RBP:  vcpu->state->_rbp = value; break;
+    case REG_RSI:  vcpu->state->_rsi = value; break;
+    case REG_RDI:  vcpu->state->_rdi = value; break;
+    case REG_R8:   vcpu->state->_r8  = value; break;
+    case REG_R9:   vcpu->state->_r9  = value; break;
+    case REG_R10:  vcpu->state->_r10 = value; break;
+    case REG_R11:  vcpu->state->_r11 = value; break;
+    case REG_R12:  vcpu->state->_r12 = value; break;
+    case REG_R13:  vcpu->state->_r13 = value; break;
+    case REG_R14:  vcpu->state->_r14 = value; break;
+    case REG_R15:  vcpu->state->_r15 = value; break;
+    default:
+        hax_panic_vcpu(vcpu, "vcpu_write_gpr: Invalid register index\n");
+    }
+}
+
+static const struct em_vcpu_ops_t em_ops = {
+    .read_gpr = vcpu_read_gpr,
+    .write_gpr = vcpu_write_gpr,
+};
+
+static void vcpu_init_emulator(struct vcpu_t *vcpu)
+{
+    struct em_context_t *em_ctx = &vcpu->emulate_ctxt;
+    em_ctx->vcpu = vcpu;
+    em_ctx->ops = &em_ops;
+}
 
 static int exit_exc_nmi(struct vcpu_t *vcpu, struct hax_tunnel *htun)
 {

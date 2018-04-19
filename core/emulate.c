@@ -58,33 +58,45 @@
 #define  X8(...)  X4(__VA_ARGS__), X4(__VA_ARGS__)
 #define X16(...)  X8(__VA_ARGS__), X8(__VA_ARGS__)
 
+/* Emulator ops */
+#define READ_GPR(idx) ctxt->ops->read_gpr(ctxt->vcpu, idx)
+
+/* Operand decoders */
+#define DECL_DECODER(name) \
+    void decode_##name(struct em_context_t*, struct em_operand_t*)
+DECL_DECODER(op_none);
+DECL_DECODER(op_modrm_reg);
+DECL_DECODER(op_modrm_rm);
+DECL_DECODER(op_imm);
+DECL_DECODER(op_acc);
+
 #define \
     N { \
         .flags      = INSN_NOTIMPL \
     }
 #define \
-    I(_handler, _type_dst, _type_src1, _type_src2, _flags) { \
-        .handler    = _handler,   \
-        .type_dst   = _type_dst,  \
-        .type_src1  = _type_src1, \
-        .type_src2  = _type_src2, \
-        .flags      = _flags      \
+    I(_handler, _dec_dst, _dec_src1, _dec_src2, _flags) { \
+        .handler      = _handler,            \
+        .decode_dst   = decode_##_dec_dst,   \
+        .decode_src1  = decode_##_dec_src1,  \
+        .decode_src2  = decode_##_dec_src2,  \
+        .flags        = _flags               \
     }
 #define \
-    F(_handler, _type_dst, _type_src1, _type_src2, _flags) \
-    I(_handler, _type_dst, _type_src1, _type_src2, _flags | INSN_FASTOP)
+    F(_handler, _dec_dst, _dec_src1, _dec_src2, _flags) \
+    I(_handler, _dec_dst, _dec_src1, _dec_src2, _flags | INSN_FASTOP)
 
-#define I2_BV(_handler, _type_dst, _type_src1, _type_src2, _flags) \
-    I(_handler, _type_dst, _type_src1, _type_src2, (_flags | INSN_BYTEOP)), \
-    I(_handler, _type_dst, _type_src1, _type_src2, (_flags))
-#define F2_BV(_handler, _type_dst, _type_src1, _type_src2, _flags) \
-    F(_handler, _type_dst, _type_src1, _type_src2, (_flags | INSN_BYTEOP)), \
-    F(_handler, _type_dst, _type_src1, _type_src2, (_flags))
+#define I2_BV(_handler, _dec_dst, _dec_src1, _dec_src2, _flags) \
+    I(_handler, _dec_dst, _dec_src1, _dec_src2, (_flags | INSN_BYTEOP)), \
+    I(_handler, _dec_dst, _dec_src1, _dec_src2, (_flags))
+#define F2_BV(_handler, _dec_dst, _dec_src1, _dec_src2, _flags) \
+    F(_handler, _dec_dst, _dec_src1, _dec_src2, (_flags | INSN_BYTEOP)), \
+    F(_handler, _dec_dst, _dec_src1, _dec_src2, (_flags))
     
 #define F6_ALU(_handler, _flags) \
-    F2_BV(_handler, OP_MEM, OP_REG, OP_NONE, (_flags | INSN_MODRM)), \
-    F2_BV(_handler, OP_REG, OP_MEM, OP_NONE, (_flags | INSN_MODRM)), \
-    F2_BV(_handler, OP_ACC, OP_IMM, OP_NONE, (_flags))
+    F2_BV(_handler, op_modrm_rm, op_modrm_reg, op_none, (_flags | INSN_MODRM)), \
+    F2_BV(_handler, op_modrm_reg, op_modrm_rm, op_none, (_flags | INSN_MODRM)), \
+    F2_BV(_handler, op_acc, op_imm, op_none, (_flags))
 
 static const struct em_opcode_t opcode_table[256] = {
     /* 0x00 - 0x07 */
@@ -104,9 +116,9 @@ static const struct em_opcode_t opcode_table[256] = {
     /* 0x38 - 0x3F */
     F6_ALU(em_cmp, 0), X2(N),
     /* 0x40 - 0x47 */
-    X8(F(em_inc, OP_REG, OP_NONE, OP_NONE, 0)),
+    X8(F(em_inc, op_modrm_reg, op_none, op_none, 0)),
     /* 0x48 - 0x4F */
-    X8(F(em_dec, OP_REG, OP_NONE, OP_NONE, 0)),
+    X8(F(em_dec, op_modrm_reg, op_none, op_none, 0)),
     /* 0x50 - 0xFF */
     X16(N), X16(N), X16(N), X16(N),
     X16(N), X16(N), X16(N), X16(N),
@@ -232,9 +244,49 @@ static void decode_prefixes(struct em_context_t *ctxt)
     }
 }
 
+static void decode_op_none(struct em_context_t *ctxt,
+                           struct em_operand_t *op)
+{
+    op->type = OP_NONE;
+}
+
+static void decode_op_reg(struct em_context_t *ctxt,
+                          struct em_operand_t *op)
+{
+    uint32_t reg_index;
+
+
+    op->type = OP_REG;
+    op->value = READ_GPR(1);
+}
+
+static void decode_op_modrm_reg(struct em_context_t *ctxt,
+    struct em_operand_t *op)
+{
+    uint32_t reg_index;
+
+
+    op->type = OP_REG;
+    op->reg.index = ctxt->modrm.reg + (ctxt->rex.r << 8);
+    op->value = READ_GPR(op->reg.index);
+}
+
+static void decode_op_modrm_rm(struct em_context_t *ctxt,
+    struct em_operand_t *op)
+{
+    uint32_t reg_index;
+
+
+    op->type = OP_REG;
+    op->reg.index = ctxt->modrm.reg + (ctxt->rex.r << 8);
+    op->value = READ_GPR(op->reg.index);
+}
+
 int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
 {
     uint8_t b;
+    uint64_t flags;
+    const struct em_opcode_t *opcode;
 
     ctxt->override_segment = PF_SEG_OVERRIDE_NONE;
     ctxt->override_operand_size = 0;
@@ -243,29 +295,46 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     decode_prefixes(ctxt);
 
     /* Intel SDM Vol. 2A: 2.2.1 REX Prefixes */
+    ctxt->rex.value = 0;
     b = insn_fetch_u8(ctxt);
     if (ctxt->mode == EM_MODE_PROT64 && b >= 0x40 && b <= 0x4F) {
-        ctxt->rex_w = (b & 0x08) != 0;
-        ctxt->rex_r = (b & 0x04) != 0;
+        ctxt->rex.value = b;
         b = insn_fetch_u8(ctxt);
     }
 
     /* Intel SDM Vol. 2A: 2.1.2 Opcodes */
-    b = insn_fetch_u8(ctxt);
-    ctxt->opcode = &opcode_table[b];
+    opcode = &opcode_table[b];
     if (b == 0x0F) {
         b = insn_fetch_u8(ctxt);
         switch (b) {
         case 0x38:
             b = insn_fetch_u8(ctxt);
-            ctxt->opcode = &opcode_table_0F38[b];
+            opcode = &opcode_table_0F38[b];
         case 0x3A:
             b = insn_fetch_u8(ctxt);
-            ctxt->opcode = &opcode_table_0F3A[b];
+            opcode = &opcode_table_0F3A[b];
 
         default:
-            ctxt->opcode = &opcode_table_0F[b];
+            opcode = &opcode_table_0F[b];
         }
+    }
+    ctxt->opcode = opcode;
+
+    /* Intel SDM Vol. 2A: 2.1.3 ModR/M and SIB Bytes */
+    flags = opcode->flags;
+    if (flags & INSN_MODRM) {
+        ctxt->modrm.value = insn_fetch_u8(ctxt);
+    }
+
+    /* Decoding operands */
+    if (opcode->decode_dst) {
+        opcode->decode_dst(ctxt, &ctxt->dst);
+    }
+    if (opcode->decode_src1) {
+        opcode->decode_src1(ctxt, &ctxt->src1);
+    }
+    if (opcode->decode_src2) {
+        opcode->decode_src2(ctxt, &ctxt->src2);
     }
 
     return 0;
