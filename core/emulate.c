@@ -250,35 +250,36 @@ static void decode_op_none(struct em_context_t *ctxt,
     op->type = OP_NONE;
 }
 
-static void decode_op_reg(struct em_context_t *ctxt,
-                          struct em_operand_t *op)
-{
-    uint32_t reg_index;
-
-
-    op->type = OP_REG;
-    op->value = READ_GPR(1);
-}
-
 static void decode_op_modrm_reg(struct em_context_t *ctxt,
-    struct em_operand_t *op)
+                                struct em_operand_t *op)
 {
     uint32_t reg_index;
 
-
     op->type = OP_REG;
-    op->reg.index = ctxt->modrm.reg + (ctxt->rex.r << 8);
+    op->reg.index = ctxt->modrm.reg + (ctxt->rex.r << 3);
     op->value = READ_GPR(op->reg.index);
 }
 
 static void decode_op_modrm_rm(struct em_context_t *ctxt,
-    struct em_operand_t *op)
+                               struct em_operand_t *op)
 {
     uint32_t reg_index;
 
-
     op->type = OP_REG;
-    op->reg.index = ctxt->modrm.reg + (ctxt->rex.r << 8);
+    op->reg.index = ctxt->modrm.rm + (ctxt->rex.b << 3);
+    op->value = READ_GPR(op->reg.index);
+}
+
+static void decode_op_imm(struct em_context_t *ctxt,
+                          struct em_operand_t *op)
+{
+}
+
+static void decode_op_acc(struct em_context_t *ctxt,
+    struct em_operand_t *op)
+{
+    op->type = OP_REG;
+    op->reg.index = REG_RAX;
     op->value = READ_GPR(op->reg.index);
 }
 

@@ -31,7 +31,12 @@
 #ifndef HAX_CORE_EMULATE_H_
 #define HAX_CORE_EMULATE_H_
 
-#include "../include/hax.h"
+#ifdef HAX_TESTS
+#include <stdint.h>
+#else
+#include "../include/hax_types.h"
+#endif
+
 #include "emulate_ops.h"
 
 /* Access completed successfully */
