@@ -59,7 +59,10 @@
 #define X16(...)  X8(__VA_ARGS__), X8(__VA_ARGS__)
 
 /* Emulator ops */
-#define READ_GPR(idx) ctxt->ops->read_gpr(ctxt->vcpu, idx)
+#define READ_GPR(idx) \
+    ctxt->ops->read_gpr(ctxt->vcpu, idx)
+#define WRITE_GPR(idx, value) \
+    ctxt->ops->write_gpr(ctxt->vcpu, idx, value)
 
 /* Operand decoders */
 #define DECL_DECODER(name) \
@@ -164,6 +167,38 @@ static int segmented_write(struct em_context_t *ctxt,
     return EM_CONTINUE;
 }
 
+static int operand_read(struct em_context_t *ctxt,
+                        struct em_operand_t *op)
+{
+    switch (op->type) {
+    case OP_NONE:
+        return EM_CONTINUE;
+    case OP_REG:
+        op->value = READ_GPR(op->reg.index);
+        return EM_CONTINUE;
+    case OP_MEM:
+        return segmented_read(ctxt, &op->mem, &op->value, op->size);
+    default:
+        return EM_ERROR;
+    }
+}
+
+static int operand_write(struct em_context_t *ctxt,
+                         struct em_operand_t *op)
+{
+    switch (op->type) {
+    case OP_NONE:
+        return EM_CONTINUE;
+    case OP_REG:
+        WRITE_GPR(op->reg.index, op->value);
+        return EM_CONTINUE;
+    case OP_MEM:
+        return segmented_write(ctxt, &op->mem, &op->value, op->size);
+    default:
+        return EM_ERROR;
+    }
+}
+
 static uint8_t insn_fetch_u8(struct em_context_t *ctxt)
 {
     uint8_t result = *(uint8_t*)(ctxt->insn);
@@ -256,8 +291,8 @@ static void decode_op_modrm_reg(em_context_t *ctxt,
     uint32_t reg_index;
 
     op->type = OP_REG;
+    op->size = ctxt->operand_size;
     op->reg.index = ctxt->modrm.reg + (ctxt->rex.r << 3);
-    op->value = READ_GPR(op->reg.index);
 }
 
 static void decode_op_modrm_rm(em_context_t *ctxt,
@@ -266,8 +301,8 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
     uint32_t reg_index;
 
     op->type = OP_REG;
+    op->size = ctxt->operand_size;
     op->reg.index = ctxt->modrm.rm + (ctxt->rex.b << 3);
-    op->value = READ_GPR(op->reg.index);
 }
 
 static void decode_op_imm(em_context_t *ctxt,
@@ -289,17 +324,43 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     uint64_t flags;
     const struct em_opcode_t *opcode;
 
+    switch (ctxt->mode) {
+    case EM_MODE_PROT16:
+        ctxt->operand_size = 2;
+        ctxt->address_size = 2;
+    case EM_MODE_PROT32:
+        ctxt->operand_size = 4;
+        ctxt->address_size = 4;
+        break;
+    case EM_MODE_PROT64:
+        ctxt->operand_size = 4;
+        ctxt->address_size = 8;
+        break;
+    default:
+        return EM_ERROR;
+    }
     ctxt->override_segment = PF_SEG_OVERRIDE_NONE;
     ctxt->override_operand_size = 0;
     ctxt->override_address_size = 0;
     ctxt->insn = insn;
     decode_prefixes(ctxt);
 
+    /* Apply legacy prefixes */
+    if (ctxt->override_operand_size) {
+        ctxt->operand_size ^= (2 | 4);
+    }
+    if (ctxt->override_address_size) {
+        ctxt->address_size ^= (ctxt->mode != EM_MODE_PROT64) ? (2 | 4) : (4 | 8);
+    }
+
     /* Intel SDM Vol. 2A: 2.2.1 REX Prefixes */
     ctxt->rex.value = 0;
     b = insn_fetch_u8(ctxt);
     if (ctxt->mode == EM_MODE_PROT64 && b >= 0x40 && b <= 0x4F) {
         ctxt->rex.value = b;
+        if (ctxt->rex.w) {
+            ctxt->operand_size = 8;
+        }
         b = insn_fetch_u8(ctxt);
     }
 
@@ -344,45 +405,43 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
 int em_emulate_insn(struct em_context_t *ctxt)
 {
     const struct em_opcode_t *opcode = ctxt->opcode;
+    em_handler_t *handler;
     int rc;
 
     // TODO: Permissions, exceptions, etc.
 
     // Input operands
-    if (ctxt->src1.type == OP_MEM) {
-        rc = segmented_read(ctxt,
-            &ctxt->src1.mem, &ctxt->src1.value, ctxt->src1.width);
+    if (!(opcode->flags & INSN_MOV)) {
+        rc = operand_read(ctxt, &ctxt->dst);
         if (rc != EM_CONTINUE)
             goto done;
     }
-    if (ctxt->src2.type == OP_MEM) {
-        rc = segmented_read(ctxt,
-            &ctxt->src2.mem, &ctxt->src2.value, ctxt->src2.width);
-        if (rc != EM_CONTINUE)
-            goto done;
-    }
-    if (ctxt->dst.type == OP_MEM && !(opcode->flags & INSN_MOV)) {
-        rc = segmented_read(ctxt,
-            &ctxt->dst.mem, &ctxt->dst.value, ctxt->dst.width);
-        if (rc != EM_CONTINUE)
-            goto done;
-    }
+    rc = operand_read(ctxt, &ctxt->src1);
+    if (rc != EM_CONTINUE)
+        goto done;
+    rc = operand_read(ctxt, &ctxt->src2);
+    if (rc != EM_CONTINUE)
+        goto done;
 
     // Emulate instruction
-    fastop_dispatch(opcode->handler,
-        &ctxt->src1.value,
-        &ctxt->src2.value,
-        &ctxt->dst.value,
-        &ctxt->eflags);
-
-    // Output operands
-    if (ctxt->dst.type == OP_MEM) {
-        rc = segmented_write(ctxt,
-            &ctxt->dst.mem, &ctxt->dst.value, ctxt->dst.width);
-        if (rc != EM_CONTINUE)
-            goto done;
+    if (opcode->flags & INSN_FASTOP) {
+        handler = (em_handler_t *)((uintptr_t)opcode->handler
+            + FASTOP_OFFSET(ctxt->dst.size));
+        fastop_dispatch(handler,
+            &ctxt->dst.value,
+            &ctxt->src1.value,
+            &ctxt->src2.value,
+            &ctxt->eflags);
+    } else {
+        opcode->handler(ctxt);
     }
+    
+    // Output operands
+    rc = operand_write(ctxt, &ctxt->dst);
+    if (rc != EM_CONTINUE)
+        goto done;
 
+    rc = EM_CONTINUE;
 done:
-    return 0;
+    return rc;
 }

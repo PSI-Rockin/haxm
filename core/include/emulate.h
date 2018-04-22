@@ -39,8 +39,10 @@
 
 #include "emulate_ops.h"
 
-/* Access completed successfully */
-#define EM_CONTINUE        0
+/* Emulation failed */
+#define EM_ERROR       -1
+/* Emulation completed successfully */
+#define EM_CONTINUE     0
 
 typedef enum {
     EM_MODE_REAL,    /* Real mode */
@@ -82,7 +84,7 @@ typedef struct em_vcpu_ops_t {
 
 /* Context */
 typedef struct em_operand_t {
-    uint32_t width;
+    uint32_t size;
     em_operand_type_t type;
     union {
         struct operand_mem_t {
@@ -101,10 +103,12 @@ typedef struct em_context_t {
     const struct em_vcpu_ops_t *ops;
 
     em_mode_t mode;
+    uint32_t operand_size;
+    uint32_t address_size;
+    uint8_t *insn;
     int override_segment;
     int override_operand_size;
     int override_address_size;
-    uint8_t *insn;
 
     const struct em_opcode_t *opcode;
     struct em_operand_t dst;

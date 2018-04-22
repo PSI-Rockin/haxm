@@ -110,3 +110,12 @@ TEST_F(EmulatorTest, and) {
     s1.gpr[REG_R14] = 0xF000;
     run("and r14, r12", s0, s1);
 }
+
+TEST_F(EmulatorTest, add) {
+    test_cpu_t s0 = {};
+    s0.gpr[REG_R10] = 3;
+    s0.gpr[REG_R11] = 5;
+    test_cpu_t s1 = s0;
+    s1.gpr[REG_R10] = 8;
+    run("add r10, r11", s0, s1);
+}

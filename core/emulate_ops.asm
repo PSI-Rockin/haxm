@@ -199,15 +199,15 @@ fastop_dispatch:
     ; Arguments:
     ;   handler  - rdi    (accessed directly)
     ;   dst      - rsi    (accessed directly)
-    ;   src1     - rdx    (saved to volatile rax)
+    ;   src1     - rdx    (saved to volatile r10)
     ;   src2     - rcx    (saved to volatile r11)
     ;   flags    - r8     (accessed directly)
 fastop_dispatch:
-    mov rax, rdx
+    mov r10, rdx
     mov r11, rcx
     ; Body
     mov reg_dst, [rsi]
-    mov reg_src1, [rax]
+    mov reg_src1, [r10]
     mov reg_src2, [r11]
     push qword [r8]
     popf
@@ -219,24 +219,26 @@ fastop_dispatch:
 
 %elifidn __CONV__, x64_microsoft
     ; Arguments:
-    ;   handler  - rcx    (saved to volatile rax)
-    ;   dst      - rdx    (saved to volatile r10)
+    ;   handler  - rcx    (saved to volatile r10)
+    ;   dst      - rdx    (saved to volatile r11)
     ;   src1     - r8     (accessed directly)
     ;   src2     - r9     (accessed directly)
-    ;   flags    - stack  (saved to volatile r11)
+    ;   flags    - stack  (saved to non-volatile r12)
 fastop_dispatch:
-    mov rax, rcx
-    mov r10, rdx
-    mov r11, [rsp+8]
+    push r12
+    mov r10, rcx
+    mov r11, rdx
+    mov r12, [rsp+30h]
     ; Body
-    mov reg_dst, [r10]
+    mov reg_dst, [r11]
     mov reg_src1, [r8]
     mov reg_src2, [r9]
-    push qword [r11]
+    push qword [r12]
     popf
-    call rax
+    call r10
     pushf
-    pop qword [r11]
-    mov [r10], reg_dst
+    pop qword [r12]
+    mov [r11], reg_dst
+    pop r12
     ret
 %endif

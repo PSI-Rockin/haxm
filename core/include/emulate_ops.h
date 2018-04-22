@@ -31,6 +31,13 @@
 #ifndef HAX_CORE_EMULATE_OPS_H_
 #define HAX_CORE_EMULATE_OPS_H_
 
+#define FASTOP_ALIGN  0x10
+#define FASTOP_OFFSET(size) ( \
+    ((size) == 8) ? (3 * FASTOP_ALIGN) : \
+    ((size) == 4) ? (2 * FASTOP_ALIGN) : \
+    ((size) == 2) ? (1 * FASTOP_ALIGN) : \
+                    (0 * FASTOP_ALIGN))
+
 /* Instruction handlers */
 typedef void(em_handler_t)();
 em_handler_t em_not;
