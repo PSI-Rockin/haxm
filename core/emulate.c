@@ -63,7 +63,7 @@
 
 /* Operand decoders */
 #define DECL_DECODER(name) \
-    void decode_##name(struct em_context_t*, struct em_operand_t*)
+    static void decode_##name(em_context_t*, em_operand_t*)
 DECL_DECODER(op_none);
 DECL_DECODER(op_modrm_reg);
 DECL_DECODER(op_modrm_rm);
@@ -76,10 +76,10 @@ DECL_DECODER(op_acc);
     }
 #define \
     I(_handler, _dec_dst, _dec_src1, _dec_src2, _flags) { \
-        .handler      = _handler,            \
-        .decode_dst   = decode_##_dec_dst,   \
-        .decode_src1  = decode_##_dec_src1,  \
-        .decode_src2  = decode_##_dec_src2,  \
+        .handler      = &_handler,            \
+        .decode_dst   = &decode_##_dec_dst,   \
+        .decode_src1  = &decode_##_dec_src1,  \
+        .decode_src2  = &decode_##_dec_src2,  \
         .flags        = _flags               \
     }
 #define \
@@ -244,14 +244,14 @@ static void decode_prefixes(struct em_context_t *ctxt)
     }
 }
 
-static void decode_op_none(struct em_context_t *ctxt,
-                           struct em_operand_t *op)
+static void decode_op_none(em_context_t *ctxt,
+                           em_operand_t *op)
 {
     op->type = OP_NONE;
 }
 
-static void decode_op_modrm_reg(struct em_context_t *ctxt,
-                                struct em_operand_t *op)
+static void decode_op_modrm_reg(em_context_t *ctxt,
+                                em_operand_t *op)
 {
     uint32_t reg_index;
 
@@ -260,8 +260,8 @@ static void decode_op_modrm_reg(struct em_context_t *ctxt,
     op->value = READ_GPR(op->reg.index);
 }
 
-static void decode_op_modrm_rm(struct em_context_t *ctxt,
-                               struct em_operand_t *op)
+static void decode_op_modrm_rm(em_context_t *ctxt,
+                               em_operand_t *op)
 {
     uint32_t reg_index;
 
@@ -270,8 +270,8 @@ static void decode_op_modrm_rm(struct em_context_t *ctxt,
     op->value = READ_GPR(op->reg.index);
 }
 
-static void decode_op_imm(struct em_context_t *ctxt,
-                          struct em_operand_t *op)
+static void decode_op_imm(em_context_t *ctxt,
+                          em_operand_t *op)
 {
 }
 

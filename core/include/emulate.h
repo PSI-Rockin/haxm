@@ -34,16 +34,13 @@
 #ifdef HAX_TESTS
 #include <stdint.h>
 #else
-#include "../include/hax_types.h"
+#include "hax_types.h"
 #endif
 
 #include "emulate_ops.h"
 
 /* Access completed successfully */
 #define EM_CONTINUE        0
-
-typedef void(*em_operand_decoder_t)(struct em_context_t *ctxt,
-                                    struct em_operand_t *op);
 
 typedef enum {
     EM_MODE_REAL,    /* Real mode */
@@ -59,29 +56,6 @@ typedef enum {
     OP_IMM,          /* Immediate operand */
     OP_ACC,          /* Accumulator: AL, AX, EAX, RAX */
 } em_operand_type_t;
-
-typedef struct em_operand_t {
-    uint32_t width;
-    em_operand_type_t type;
-    union {
-        struct operand_mem_t {
-            uint64_t addr;
-            uint32_t segment;
-        } mem;
-        struct operand_reg_t {
-            uint32_t index;
-        } reg;
-    };
-    uint64_t value;
-} em_operand_t;
-
-typedef struct em_opcode_t {
-    em_handler_t* handler;
-    em_operand_decoder_t decode_dst;
-    em_operand_decoder_t decode_src1;
-    em_operand_decoder_t decode_src2;
-    uint64_t flags;
-} em_opcode_t;
 
 /* Interface */
 #define REG_RAX   0
@@ -105,6 +79,22 @@ typedef struct em_vcpu_ops_t {
     uint64_t(*read_gpr)(void *vcpu, uint32_t reg_index);
     void(*write_gpr)(void *vcpu, uint32_t reg_index, uint64_t value);
 } em_vcpu_ops_t;
+
+/* Context */
+typedef struct em_operand_t {
+    uint32_t width;
+    em_operand_type_t type;
+    union {
+        struct operand_mem_t {
+            uint64_t addr;
+            uint32_t segment;
+        } mem;
+        struct operand_reg_t {
+            uint32_t index;
+        } reg;
+    };
+    uint64_t value;
+} em_operand_t;
 
 typedef struct em_context_t {
     void *vcpu;
@@ -150,6 +140,17 @@ typedef struct em_context_t {
         uint8_t value;
     } sib;
 } em_context_t;
+
+typedef void(em_operand_decoder_t)(em_context_t *ctxt,
+                                   em_operand_t *op);
+
+typedef struct em_opcode_t {
+    em_handler_t *handler;
+    em_operand_decoder_t *decode_dst;
+    em_operand_decoder_t *decode_src1;
+    em_operand_decoder_t *decode_src2;
+    uint64_t flags;
+} em_opcode_t;
 
 int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn);
 int em_emulate_insn(struct em_context_t *ctxt);

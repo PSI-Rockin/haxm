@@ -66,6 +66,6 @@ em_handler_t em_andn;
 
 /* Dispatch handlers */
 void fastop_dispatch(em_handler_t handler,
-                     void *src1, void *src2, void *dest, void *flags);
+                     void *dst, void *src1, void *src2, void *flags);
 
 #endif /* HAX_CORE_EMULATE_OPS_H_ */

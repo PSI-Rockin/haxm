@@ -134,7 +134,9 @@
   </PropertyGroup>
   <!-- Needed by any VcxProj -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\nasm.props" />
+  </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Win7 Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
   </ImportGroup>
@@ -174,54 +176,40 @@
   <PropertyGroup Label="UserMacros" />
   <!-- The WrappedTaskItems label is used by the conversion tool to identify the location where items 
         associated with wrapped tasks will reside.-->
-  <ItemGroup Label="WrappedTaskItems" />
+  <ItemGroup Label="WrappedTaskItems">
+    <NASM Include="emulate_ops.asm">
+      <FileType>Document</FileType>
+    </NASM>
+  </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8 Debug|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
-    <MASM>
-      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
-    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Debug|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
-    <MASM>
-      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
-    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win7 Release|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
-    <MASM>
-      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
-    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8.1 Debug|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
-    <MASM>
-      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
-    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8 Release|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
-    <MASM>
-      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
-    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8.1 Release|Win32'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
-    <MASM>
-      <UseSafeExceptionHandlers>true</UseSafeExceptionHandlers>
-    </MASM>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8 Debug|x64'">
     <ClCompile>
@@ -257,11 +245,9 @@
     <!-- We only add items (e.g. form ClSourceFiles) that do not already exist (e.g in the ClCompile list), this avoids duplication -->
     <ClCompile Include="@(ClSourceFiles)" Exclude="@(ClCompile)" />
     <ClCompile Include="emulate.c" />
-    <MASM Include="emulate_ops.asm" />
     <ResourceCompile Include="@(RcSourceFiles)" Exclude="@(ResourceCompile)" />
     <Midl Include="@(IdlSourceFiles)" Exclude="@(Midl)" />
     <MessageCompile Include="@(McSourceFiles)" Exclude="@(MessageCompile)" />
-    <MASM Include="@(AsmSourceFiles)" Exclude="@(MASM)" />
     <GenerateBmf Include="@(MofSourceFiles)" Exclude="@(GenerateBmf)" />
   </ItemGroup>
   <!-- Set default environment variables, e.g. for stampinf -->
@@ -288,5 +274,7 @@
   </ItemGroup>
   <!-- /Necessary to pick up proper files from local directory when in the IDE-->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\nasm.targets" />
+  </ImportGroup>
 </Project>

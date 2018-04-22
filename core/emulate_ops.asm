@@ -27,156 +27,133 @@
 ; ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 ; POSSIBILITY OF SUCH DAMAGE.
 
-option casemap:none
+;
+; Detect architecture
+;
+%ifidn __OUTPUT_FORMAT__, elf32
+    %define __BITS__ 32
+    %define __CONV__ x32_cdecl
+%elifidn __OUTPUT_FORMAT__, win32
+    %define __BITS__ 32
+    %define __CONV__ x32_cdecl
+%elifidn __OUTPUT_FORMAT__, macho32
+    %define __BITS__ 32
+    %define __CONV__ x32_cdecl
+%elifidn __OUTPUT_FORMAT__, elf64
+    %define __BITS__ 64
+    %define __CONV__ x64_systemv
+%elifidn __OUTPUT_FORMAT__, win64
+    %define __BITS__ 64
+    %define __CONV__ x64_microsoft
+%elifidn __OUTPUT_FORMAT__, macho64
+    %define __BITS__ 64
+    %define __CONV__ x64_systemv
+%endif
 
-fop_start macro name
-    align 16
-    @CatStr(em_, name) proc
-endm
-fop_end macro name
-    @CatStr(em_, name) endp
-endm
-
-; Instruction variants
-fop macro instruction
-    align 16
-    instruction
-    ret
-endm
-fop32 macro instruction
-    ifdef eax
-        fop <instruction>
-    endif
-endm
-fop64 macro instruction
-    ifdef rax
-        fop <instruction>
-    endif
-endm
-
+;
 ; Calling convention
 ;  - eax/rax - dest value
 ;  - edx/rdx - src1 value
 ;  - ecx/rcx - src2 value
-reg_dst macro width:=<0>
-    ; Select based on width
-    if width eq 8
-        exitm <al>
-    elseif width eq 16
-        exitm <ax>
-    elseif width eq 32
-        exitm <eax>
-    elseif width eq 64
-        exitm <rax>
-    endif
-    ; Select based on arch
-    ifdef rdx
-        exitm <rax>
-    else
-        exitm <eax>
-    endif
-endm
-reg_src1 macro width:=<0>
-    ; Select based on width
-    if width eq 8
-        exitm <dl>
-    elseif width eq 16
-        exitm <dx>
-    elseif width eq 32
-        exitm <edx>
-    elseif width eq 64
-        exitm <rdx>
-    endif
-    ; Select based on arch
-    ifdef rdx
-        exitm <rdx>
-    else
-        exitm <edx>
-    endif
-endm
-reg_src2 macro width:=<0>
-    ; Select based on width
-    if width eq 8
-        exitm <cl>
-    elseif width eq 16
-        exitm <cx>
-    elseif width eq 32
-        exitm <ecx>
-    elseif width eq 64
-        exitm <rcx>
-    endif
-    ; Select based on arch
-    ifdef rdx
-        exitm <rcx>
-    else
-        exitm <ecx>
-    endif
-endm
-reg_tmp macro
-    ; Select based on arch
-    ifdef rbx
-        exitm <rbx>
-    else
-        exitm <ebx>
-    endif
-endm
+;
+%define reg_dst_08   al
+%define reg_dst_16   ax
+%define reg_dst_32   eax
+%define reg_dst_64   rax
+
+%define reg_src1_08  cl
+%define reg_src1_16  cx
+%define reg_src1_32  ecx
+%define reg_src1_64  rcx
+
+%define reg_src2_08  dl
+%define reg_src2_16  dx
+%define reg_src2_32  edx
+%define reg_src2_64  rdx
+
+%ifidn __BITS__, 32
+    %define reg_dst   reg_dst_32
+    %define reg_src1  reg_src1_32
+    %define reg_src2  reg_src2_32
+%elifidn __BITS__, 64
+    %define reg_dst   reg_dst_64
+    %define reg_src1  reg_src1_64
+    %define reg_src2  reg_src2_64
+%endif
+
+%macro fop_start 1
+    align 16
+    global em_%+%1
+    em_%+%1:
+%endmacro
+
+; Instruction variants
+%macro fop 1-*
+    align 16
+     %{1:-1}
+    ret
+%endmacro
+%macro fop32 1-*
+    fop %{1:-1}
+%endmacro
+%macro fop64 1-*
+    %ifidn __BITS__, 64
+        fop %{1:-1}
+    %endif
+%endmacro
 
 ; 1-operand instructions
-fastop1 macro name
-    fop_start name
-    fop32 <name reg_dst(08)>
-    fop32 <name reg_dst(16)>
-    fop32 <name reg_dst(32)>
-    fop64 <name reg_dst(64)>
-    fop_end name
-endm
+%macro fastop1 1
+    fop_start %1
+    fop32 %[%1 reg_dst_08]
+    fop32 %[%1 reg_dst_16]
+    fop32 %[%1 reg_dst_32]
+    fop64 %[%1 reg_dst_64]
+%endmacro
 
 ; 2-operand instructions
-fastop2 macro name
-    fop_start name
-    fop32 <name reg_dst(08), reg_src1(08)>
-    fop32 <name reg_dst(16), reg_src1(16)>
-    fop32 <name reg_dst(32), reg_src1(32)>
-    fop64 <name reg_dst(64), reg_src1(64)>
-    fop_end name
-endm
-fastop2w macro name
-    fop_start name
-    fop32 <nop>
-    fop32 <name reg_dst(16), reg_src1(16)>
-    fop32 <name reg_dst(32), reg_src1(32)>
-    fop64 <name reg_dst(64), reg_src1(64)>
-    fop_end name
-endm
-fastop2cl macro name
-    fop_start name
-    fop32 <name reg_dst(08), cl>
-    fop32 <name reg_dst(16), cl>
-    fop32 <name reg_dst(32), cl>
-    fop64 <name reg_dst(64), cl>
-    fop_end name
-endm
+%macro fastop2 1
+    fop_start %1
+    fop32 %[%1 reg_dst_08, reg_src1_08]
+    fop32 %[%1 reg_dst_16, reg_src1_16]
+    fop32 %[%1 reg_dst_32, reg_src1_32]
+    fop64 %[%1 reg_dst_64, reg_src1_64]
+%endmacro
+%macro fastop2w 1
+    fop_start %1
+    fop32 %[nop]
+    fop32 %[%1 reg_dst_16, reg_src1_16]
+    fop32 %[%1 reg_dst_32, reg_src1_32]
+    fop64 %[%1 reg_dst_64, reg_src1_64]
+%endmacro
+%macro fastop2cl 1
+    fop_start %1
+    fop32 %[%1 reg_dst_08, cl]
+    fop32 %[%1 reg_dst_16, cl]
+    fop32 %[%1 reg_dst_32, cl]
+    fop64 %[%1 reg_dst_64, cl]
+%endmacro
 
 ; 3-operand instructions
-fastop3d macro name
-    fop_start name
-    fop32 <nop>
-    fop32 <nop>
-    fop32 <name reg_dst(32), reg_src1(32), reg_src2(32)>
-    fop64 <name reg_dst(64), reg_src1(64), reg_src2(64)>
-    fop_end name
-endm
-fastop3wcl macro name
-    fop_start name
-    fop32 <nop>
-    fop32 <name reg_dst(16), reg_src1(16), cl>
-    fop32 <name reg_dst(32), reg_src1(32), cl>
-    fop64 <name reg_dst(64), reg_src1(64), cl>
-    fop_end name
-endm
+%macro fastop3d 1
+    fop_start %1
+    fop32 %[nop]
+    fop32 %[nop]
+    fop32 %[%1 reg_dst_32, reg_src1_32, reg_src2_32]
+    fop64 %[%1 reg_dst_64, reg_src1_64, reg_src2_64]
+%endmacro
+%macro fastop3wcl 1
+    fop_start %1
+    fop32 %[nop]
+    fop32 %[%1 reg_dst_16, reg_src1_16, cl]
+    fop32 %[%1 reg_dst_32, reg_src1_32, cl]
+    fop64 %[%1 reg_dst_64, reg_src1_64, cl]
+%endmacro
 
-.code
 
+section .text
+
+; Instruction handling
 fastop1 not
 fastop1 neg
 fastop1 inc
@@ -211,29 +188,55 @@ fastop3wcl shrd
 fastop3d bextr
 fastop3d andn
 
-fastop_dispatch proc public op:PTR, src1:PTR, src2:PTR, dst:PTR, flags:PTR
-    push reg_tmp()
-    push reg_src1()
-    push reg_src2()
-    push reg_dst()
-    mov reg_tmp(), src1
-    mov reg_src1(), [reg_tmp()]
-    mov reg_tmp(), src2
-    mov reg_src2(), [reg_tmp()]
-    mov reg_tmp(), flags
-    push [reg_tmp()]
-    popf
-    call op
-    pushf
-    mov reg_tmp(), flags
-    pop [reg_tmp()]
-    mov reg_tmp(), dst
-    mov [reg_tmp()], reg_dst()
-    pop reg_dst()
-    pop reg_src2()
-    pop reg_src1()
-    pop reg_tmp()
+; Instruction dispatching
+global fastop_dispatch
+%ifidn __CONV__, x32_cdecl
+fastop_dispatch:
+    ; TODO: Unimplemented
     ret
-fastop_dispatch endp
 
-end
+%elifidn __CONV__, x64_systemv
+    ; Arguments:
+    ;   handler  - rdi    (accessed directly)
+    ;   dst      - rsi    (accessed directly)
+    ;   src1     - rdx    (saved to volatile rax)
+    ;   src2     - rcx    (saved to volatile r11)
+    ;   flags    - r8     (accessed directly)
+fastop_dispatch:
+    mov rax, rdx
+    mov r11, rcx
+    ; Body
+    mov reg_dst, [rsi]
+    mov reg_src1, [rax]
+    mov reg_src2, [r11]
+    push qword [r8]
+    popf
+    call rdi
+    pushf
+    pop qword [r8]
+    mov [rsi], reg_dst
+    ret
+
+%elifidn __CONV__, x64_microsoft
+    ; Arguments:
+    ;   handler  - rcx    (saved to volatile rax)
+    ;   dst      - rdx    (saved to volatile r10)
+    ;   src1     - r8     (accessed directly)
+    ;   src2     - r9     (accessed directly)
+    ;   flags    - stack  (saved to volatile r11)
+fastop_dispatch:
+    mov rax, rcx
+    mov r10, rdx
+    mov r11, [rsp+8]
+    ; Body
+    mov reg_dst, [r10]
+    mov reg_src1, [r8]
+    mov reg_src2, [r9]
+    push qword [r11]
+    popf
+    call rax
+    pushf
+    pop qword [r11]
+    mov [r10], reg_dst
+    ret
+%endif
