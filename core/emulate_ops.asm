@@ -205,7 +205,6 @@ fastop_dispatch:
 fastop_dispatch:
     mov r10, rdx
     mov r11, rcx
-    ; Body
     mov reg_dst, [rsi]
     mov reg_src1, [r10]
     mov reg_src2, [r11]
@@ -229,7 +228,6 @@ fastop_dispatch:
     mov r10, rcx
     mov r11, rdx
     mov r12, [rsp+30h]
-    ; Body
     mov reg_dst, [r11]
     mov reg_src1, [r8]
     mov reg_src2, [r9]

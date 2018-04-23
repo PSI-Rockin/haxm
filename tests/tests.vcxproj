@@ -37,7 +37,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" />
   <ItemGroup>
-    <ClCompile Include="test.cpp" />
+    <ClCompile Include="test_emulator.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

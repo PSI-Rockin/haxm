@@ -59,6 +59,9 @@ typedef enum {
     OP_ACC,          /* Accumulator: AL, AX, EAX, RAX */
 } em_operand_type_t;
 
+typedef struct em_context_t em_context_t;
+typedef struct em_operand_t em_operand_t;
+
 /* Interface */
 #define REG_RAX   0
 #define REG_RCX   1
@@ -77,10 +80,34 @@ typedef enum {
 #define REG_R14   14
 #define REG_R15   15
 
+#define RFLAGS_CF  (1 <<  0)
+#define RFLAGS_PF  (1 <<  2)
+#define RFLAGS_AF  (1 <<  4)
+#define RFLAGS_ZF  (1 <<  6)
+#define RFLAGS_SF  (1 <<  7)
+#define RFLAGS_OF  (1 << 11)
+
+#define RFLAGS_MASK_OSZAPC \
+    (RFLAGS_CF | RFLAGS_PF | RFLAGS_AF | RFLAGS_ZF | RFLAGS_SF | RFLAGS_OF)
+
 typedef struct em_vcpu_ops_t {
     uint64_t(*read_gpr)(void *vcpu, uint32_t reg_index);
     void(*write_gpr)(void *vcpu, uint32_t reg_index, uint64_t value);
 } em_vcpu_ops_t;
+
+typedef void(em_operand_decoder_t)(em_context_t *ctxt,
+                                   em_operand_t *op);
+
+typedef struct em_opcode_t {
+    union {
+        void *handler;
+        const struct em_opcode_t *group;
+    };
+    em_operand_decoder_t *decode_dst;
+    em_operand_decoder_t *decode_src1;
+    em_operand_decoder_t *decode_src2;
+    uint64_t flags;
+} em_opcode_t;
 
 /* Context */
 typedef struct em_operand_t {
@@ -110,7 +137,7 @@ typedef struct em_context_t {
     int override_operand_size;
     int override_address_size;
 
-    const struct em_opcode_t *opcode;
+    struct em_opcode_t opcode;
     struct em_operand_t dst;
     struct em_operand_t src1;
     struct em_operand_t src2;
@@ -133,6 +160,11 @@ typedef struct em_context_t {
             uint8_t reg : 3;
             uint8_t mod : 2;
         };
+        struct {
+            uint8_t     : 3;
+            uint8_t opc : 3;
+            uint8_t     : 2;
+        };
         uint8_t value;
     } modrm;
     union {
@@ -144,17 +176,6 @@ typedef struct em_context_t {
         uint8_t value;
     } sib;
 } em_context_t;
-
-typedef void(em_operand_decoder_t)(em_context_t *ctxt,
-                                   em_operand_t *op);
-
-typedef struct em_opcode_t {
-    em_handler_t *handler;
-    em_operand_decoder_t *decode_dst;
-    em_operand_decoder_t *decode_src1;
-    em_operand_decoder_t *decode_src2;
-    uint64_t flags;
-} em_opcode_t;
 
 int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn);
 int em_emulate_insn(struct em_context_t *ctxt);

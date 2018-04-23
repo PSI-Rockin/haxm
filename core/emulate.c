@@ -33,7 +33,8 @@
 /* Instruction flags */
 #define INSN_MOV     ((uint64_t)1 <<  0)
 #define INSN_MODRM   ((uint64_t)1 <<  1)
-#define INSN_BYTEOP  ((uint64_t)1 <<  2) /* 8-bit operands. */
+#define INSN_BYTEOP  ((uint64_t)1 <<  2)
+#define INSN_GROUP   ((uint64_t)1 <<  3)
 /* Implementation flags */
 #define INSN_NOTIMPL ((uint64_t)1 << 32)
 #define INSN_FASTOP  ((uint64_t)1 << 33)
@@ -71,6 +72,7 @@ DECL_DECODER(op_none);
 DECL_DECODER(op_modrm_reg);
 DECL_DECODER(op_modrm_rm);
 DECL_DECODER(op_imm);
+DECL_DECODER(op_simm8);
 DECL_DECODER(op_acc);
 
 #define \
@@ -83,8 +85,17 @@ DECL_DECODER(op_acc);
         .decode_dst   = &decode_##_dec_dst,   \
         .decode_src1  = &decode_##_dec_src1,  \
         .decode_src2  = &decode_##_dec_src2,  \
-        .flags        = _flags               \
+        .flags        = _flags                \
     }
+#define \
+    G(_group, _dec_dst, _dec_src1, _dec_src2, _flags) { \
+        .group        = _group,               \
+        .decode_dst   = &decode_##_dec_dst,   \
+        .decode_src1  = &decode_##_dec_src1,  \
+        .decode_src2  = &decode_##_dec_src2,  \
+        .flags        = _flags | INSN_GROUP   \
+    }
+
 #define \
     F(_handler, _dec_dst, _dec_src1, _dec_src2, _flags) \
     I(_handler, _dec_dst, _dec_src1, _dec_src2, _flags | INSN_FASTOP)
@@ -100,6 +111,17 @@ DECL_DECODER(op_acc);
     F2_BV(_handler, op_modrm_rm, op_modrm_reg, op_none, (_flags | INSN_MODRM)), \
     F2_BV(_handler, op_modrm_reg, op_modrm_rm, op_none, (_flags | INSN_MODRM)), \
     F2_BV(_handler, op_acc, op_imm, op_none, (_flags))
+
+static const struct em_opcode_t opcode_group1[8] = {
+    F(em_add, op_none, op_none, op_none, 0),
+    F(em_or,  op_none, op_none, op_none, 0),
+    F(em_adc, op_none, op_none, op_none, 0),
+    F(em_sbb, op_none, op_none, op_none, 0),
+    F(em_and, op_none, op_none, op_none, 0),
+    F(em_sub, op_none, op_none, op_none, 0),
+    F(em_xor, op_none, op_none, op_none, 0),
+    F(em_cmp, op_none, op_none, op_none, 0),
+};
 
 static const struct em_opcode_t opcode_table[256] = {
     /* 0x00 - 0x07 */
@@ -122,8 +144,15 @@ static const struct em_opcode_t opcode_table[256] = {
     X8(F(em_inc, op_modrm_reg, op_none, op_none, 0)),
     /* 0x48 - 0x4F */
     X8(F(em_dec, op_modrm_reg, op_none, op_none, 0)),
-    /* 0x50 - 0xFF */
-    X16(N), X16(N), X16(N), X16(N),
+    /* 0x50 - 0x7F */
+    X16(N), X16(N), X16(N),
+    /* 0x80 - 0x8F */
+    G(opcode_group1, op_modrm_rm, op_imm, op_none, INSN_BYTEOP),
+    G(opcode_group1, op_modrm_rm, op_imm, op_none, 0),
+    G(opcode_group1, op_modrm_rm, op_imm, op_none, INSN_BYTEOP),
+    G(opcode_group1, op_modrm_rm, op_simm8, op_none, 0),
+    X4(N), X8(N),
+    /* 0x90 - 0x9F */
     X16(N), X16(N), X16(N), X16(N),
     X16(N), X16(N), X16(N)
 };
@@ -172,6 +201,7 @@ static int operand_read(struct em_context_t *ctxt,
 {
     switch (op->type) {
     case OP_NONE:
+    case OP_IMM:
         return EM_CONTINUE;
     case OP_REG:
         op->value = READ_GPR(op->reg.index);
@@ -188,6 +218,7 @@ static int operand_write(struct em_context_t *ctxt,
 {
     switch (op->type) {
     case OP_NONE:
+    case OP_IMM:
         return EM_CONTINUE;
     case OP_REG:
         WRITE_GPR(op->reg.index, op->value);
@@ -308,6 +339,30 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
 static void decode_op_imm(em_context_t *ctxt,
                           em_operand_t *op)
 {
+    op->type = OP_IMM;
+    op->size = ctxt->operand_size;
+    switch (op->size) {
+    case 1:
+        op->value = insn_fetch_u8(ctxt);
+        break;
+    case 2:
+        op->value = insn_fetch_u16(ctxt);
+        break;
+    case 4:
+        op->value = insn_fetch_u32(ctxt);
+        break;
+    case 8:
+        op->value = insn_fetch_u32(ctxt);
+        break;
+    }
+}
+
+static void decode_op_simm8(em_context_t *ctxt,
+    em_operand_t *op)
+{
+    op->type = OP_IMM;
+    op->size = 1;
+    op->value = (int64)((int8)insn_fetch_u8(ctxt));
 }
 
 static void decode_op_acc(struct em_context_t *ctxt,
@@ -322,7 +377,8 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
 {
     uint8_t b;
     uint64_t flags;
-    const struct em_opcode_t *opcode;
+    struct em_opcode_t *opcode;
+    const struct em_opcode_t *opcode_group;
 
     switch (ctxt->mode) {
     case EM_MODE_PROT16:
@@ -365,27 +421,38 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     }
 
     /* Intel SDM Vol. 2A: 2.1.2 Opcodes */
-    opcode = &opcode_table[b];
+    opcode = &ctxt->opcode;
+    *opcode = opcode_table[b];
     if (b == 0x0F) {
         b = insn_fetch_u8(ctxt);
         switch (b) {
         case 0x38:
             b = insn_fetch_u8(ctxt);
-            opcode = &opcode_table_0F38[b];
+            *opcode = opcode_table_0F38[b];
         case 0x3A:
             b = insn_fetch_u8(ctxt);
-            opcode = &opcode_table_0F3A[b];
+            *opcode = opcode_table_0F3A[b];
 
         default:
-            opcode = &opcode_table_0F[b];
+            *opcode = opcode_table_0F[b];
         }
     }
-    ctxt->opcode = opcode;
 
     /* Intel SDM Vol. 2A: 2.1.3 ModR/M and SIB Bytes */
     flags = opcode->flags;
     if (flags & INSN_MODRM) {
         ctxt->modrm.value = insn_fetch_u8(ctxt);
+    }
+
+    /* Apply flags */
+    if (flags & INSN_BYTEOP) {
+        ctxt->operand_size = 1;
+        ctxt->address_size = 1;
+    }
+    if (flags & INSN_GROUP) {
+        opcode_group = &opcode->group[ctxt->modrm.opc];
+        opcode->handler = opcode_group->handler;
+        opcode->flags |= opcode_group->flags;
     }
 
     /* Decoding operands */
@@ -404,8 +471,10 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
 
 int em_emulate_insn(struct em_context_t *ctxt)
 {
-    const struct em_opcode_t *opcode = ctxt->opcode;
-    em_handler_t *handler;
+    const struct em_opcode_t *opcode = &ctxt->opcode;
+    void(*fast_handler)();
+    void(*soft_handler)(em_context_t*);
+    uint64_t eflags;
     int rc;
 
     // TODO: Permissions, exceptions, etc.
@@ -425,15 +494,19 @@ int em_emulate_insn(struct em_context_t *ctxt)
 
     // Emulate instruction
     if (opcode->flags & INSN_FASTOP) {
-        handler = (em_handler_t *)((uintptr_t)opcode->handler
+        eflags = ctxt->eflags & RFLAGS_MASK_OSZAPC;
+        fast_handler = (em_handler_t *)((uintptr_t)opcode->handler
             + FASTOP_OFFSET(ctxt->dst.size));
-        fastop_dispatch(handler,
+        fastop_dispatch(fast_handler,
             &ctxt->dst.value,
             &ctxt->src1.value,
             &ctxt->src2.value,
-            &ctxt->eflags);
+            &eflags);
+        ctxt->eflags &= ~RFLAGS_MASK_OSZAPC;
+        ctxt->eflags |= eflags & RFLAGS_MASK_OSZAPC;
     } else {
-        opcode->handler(ctxt);
+        soft_handler = opcode->handler;
+        soft_handler(ctxt);
     }
     
     // Output operands
