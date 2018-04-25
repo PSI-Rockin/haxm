@@ -45,17 +45,17 @@ struct test_cpu_t {
     uint8_t mem[0x100];
 };
 
-static uint64_t test_read_gpr(void *obj, uint32_t reg_index)
+static uint64_t test_read_gpr(void* obj, uint32_t reg_index)
 {
-    test_cpu_t *vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
     if (reg_index >= 16)
         throw std::exception("Register index OOB");
     return vcpu->gpr[reg_index];
 }
 
-static void test_write_gpr(void *obj, uint32_t reg_index, uint64_t value)
+static void test_write_gpr(void* obj, uint32_t reg_index, uint64_t value)
 {
-    test_cpu_t *vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
     if (reg_index >= 16)
         throw std::exception("Register index OOB");
     vcpu->gpr[reg_index] = value;
@@ -63,14 +63,13 @@ static void test_write_gpr(void *obj, uint32_t reg_index, uint64_t value)
 
 class EmulatorTest : public testing::Test {
 private:
-    ks_engine *ks;
+    ks_engine* ks;
     test_cpu_t vcpu;
     em_context_t em_ctxt;
     em_vcpu_ops_t em_ops;
 
 protected:
-    virtual void SetUp()
-    {
+    virtual void SetUp() {
         // Initialize assembler
         ks_err err;
         err = ks_open(KS_ARCH_X86, KS_MODE_64, &ks);
@@ -88,9 +87,8 @@ protected:
 
     void run(const char* insn,
         const test_cpu_t& initial_state,
-        const test_cpu_t& expected_state)
-    {
-        uint8_t *code;
+        const test_cpu_t& expected_state) {
+        uint8_t* code;
         size_t count;
         size_t size;
         int err;
@@ -267,25 +265,6 @@ protected:
     }
 };
 
-TEST_F(EmulatorTest, insn_and) {
-    test_f6alu_i08("and", {
-        { 0x55, 0xF0, RFLAGS_CF,
-          0x50, RFLAGS_PF },
-        { 0xF0, 0x0F, RFLAGS_OF,
-          0x00, RFLAGS_PF | RFLAGS_ZF },
-    });
-    test_f6alu_i16("and", {
-        { 0x0001, 0xF00F, RFLAGS_CF | RFLAGS_OF,
-          0x0001, 0 },
-        { 0xFF00, 0xF0F0, 0,
-          0xF000, RFLAGS_PF | RFLAGS_SF },
-    });
-    test_f6alu_i32("and", {
-        { 0xFFFF0001, 0xFFFF0001, 0,
-          0xFFFF0001, RFLAGS_SF },
-    });
-}
-
 TEST_F(EmulatorTest, insn_add) {
     test_f6alu_i08("add", {
         { 0x04, 0x05, 0,
@@ -310,5 +289,46 @@ TEST_F(EmulatorTest, insn_add) {
           0x2'01010101ULL, RFLAGS_AF },
         { 0x0'F0000000ULL, 0x0'10000001ULL, 0,
           0x1'00000001ULL, 0 },
+    });
+}
+
+TEST_F(EmulatorTest, insn_and) {
+    test_f6alu_i08("and", {
+        { 0x55, 0xF0, RFLAGS_CF,
+          0x50, RFLAGS_PF },
+        { 0xF0, 0x0F, RFLAGS_OF,
+          0x00, RFLAGS_PF | RFLAGS_ZF },
+    });
+    test_f6alu_i16("and", {
+        { 0x0001, 0xF00F, RFLAGS_CF | RFLAGS_OF,
+          0x0001, 0 },
+        { 0xFF00, 0xF0F0, 0,
+          0xF000, RFLAGS_PF | RFLAGS_SF },
+    });
+    test_f6alu_i32("and", {
+        { 0xFFFF0001, 0xFFFF0001, 0,
+          0xFFFF0001, RFLAGS_SF },
+    });
+    test_f6alu_i64("and", {
+        { 0xFFFF'F0F0FFFFULL, 0x0000'FFFF0000ULL, 0,
+          0x0000'F0F00000ULL, RFLAGS_PF },
+    });
+}
+
+TEST_F(EmulatorTest, insn_or) {
+    test_f6alu_i08("or", {
+        { 0x55, 0xF0, RFLAGS_CF,
+          0xF5, RFLAGS_PF | RFLAGS_SF },
+        { 0xF0, 0x0E, RFLAGS_OF,
+          0xFE, RFLAGS_SF },
+    });
+}
+
+TEST_F(EmulatorTest, insn_xor) {
+    test_f6alu_i08("xor", {
+        { 0x0F, 0xF0, RFLAGS_CF,
+          0xFF, RFLAGS_PF| RFLAGS_SF },
+        { 0xFF, 0xFF, RFLAGS_OF,
+          0x00, RFLAGS_PF | RFLAGS_ZF },
     });
 }

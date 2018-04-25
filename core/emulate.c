@@ -93,7 +93,7 @@ DECL_DECODER(op_acc);
         .decode_dst   = &decode_##_dec_dst,   \
         .decode_src1  = &decode_##_dec_src1,  \
         .decode_src2  = &decode_##_dec_src2,  \
-        .flags        = _flags | INSN_GROUP   \
+        .flags        = _flags | INSN_GROUP | INSN_MODRM \
     }
 
 #define \
@@ -319,11 +319,9 @@ static void decode_op_none(em_context_t *ctxt,
 static void decode_op_modrm_reg(em_context_t *ctxt,
                                 em_operand_t *op)
 {
-    uint32_t reg_index;
-
     op->type = OP_REG;
     op->size = ctxt->operand_size;
-    op->reg.index = ctxt->modrm.reg + (ctxt->rex.r << 3);
+    op->reg.index = ctxt->modrm.reg | (ctxt->rex.r << 3);
 }
 
 static void decode_op_modrm_rm(em_context_t *ctxt,
@@ -447,7 +445,6 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     /* Apply flags */
     if (flags & INSN_BYTEOP) {
         ctxt->operand_size = 1;
-        ctxt->address_size = 1;
     }
     if (flags & INSN_GROUP) {
         opcode_group = &opcode->group[ctxt->modrm.opc];

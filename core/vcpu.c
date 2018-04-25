@@ -2658,51 +2658,20 @@ static int hax_setup_fastmmio(struct vcpu_t *vcpu, struct hax_tunnel *htun,
 
 static uint64_t vcpu_read_gpr(struct vcpu_t *vcpu, uint32_t reg_index)
 {
-    switch (reg_index) {
-    case REG_RAX:  return vcpu->state->_rax;
-    case REG_RCX:  return vcpu->state->_rcx;
-    case REG_RDX:  return vcpu->state->_rdx;
-    case REG_RBX:  return vcpu->state->_rbx;
-    case REG_RSP:  return vcpu->state->_rsp;
-    case REG_RBP:  return vcpu->state->_rbp;
-    case REG_RSI:  return vcpu->state->_rsi;
-    case REG_RDI:  return vcpu->state->_rdi;
-    case REG_R8:   return vcpu->state->_r8;
-    case REG_R9:   return vcpu->state->_r9;
-    case REG_R10:  return vcpu->state->_r10;
-    case REG_R11:  return vcpu->state->_r11;
-    case REG_R12:  return vcpu->state->_r12;
-    case REG_R13:  return vcpu->state->_r13;
-    case REG_R14:  return vcpu->state->_r14;
-    case REG_R15:  return vcpu->state->_r15;
-    default:
+    if (reg_index >= 16) {
         hax_panic_vcpu(vcpu, "vcpu_read_gpr: Invalid register index\n");
         return 0;
     }
+    return vcpu->state->_regs[reg_index];
 }
 
 static void vcpu_write_gpr(struct vcpu_t *vcpu, uint32_t reg_index, uint64_t value)
 {
-    switch (reg_index) {
-    case REG_RAX:  vcpu->state->_rax = value; break;
-    case REG_RCX:  vcpu->state->_rcx = value; break;
-    case REG_RDX:  vcpu->state->_rdx = value; break;
-    case REG_RBX:  vcpu->state->_rbx = value; break;
-    case REG_RSP:  vcpu->state->_rsp = value; break;
-    case REG_RBP:  vcpu->state->_rbp = value; break;
-    case REG_RSI:  vcpu->state->_rsi = value; break;
-    case REG_RDI:  vcpu->state->_rdi = value; break;
-    case REG_R8:   vcpu->state->_r8  = value; break;
-    case REG_R9:   vcpu->state->_r9  = value; break;
-    case REG_R10:  vcpu->state->_r10 = value; break;
-    case REG_R11:  vcpu->state->_r11 = value; break;
-    case REG_R12:  vcpu->state->_r12 = value; break;
-    case REG_R13:  vcpu->state->_r13 = value; break;
-    case REG_R14:  vcpu->state->_r14 = value; break;
-    case REG_R15:  vcpu->state->_r15 = value; break;
-    default:
+    if (reg_index >= 16) {
         hax_panic_vcpu(vcpu, "vcpu_write_gpr: Invalid register index\n");
+        return;
     }
+    vcpu->state->_regs[reg_index] = value;
 }
 
 static const struct em_vcpu_ops_t em_ops = {
