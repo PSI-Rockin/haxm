@@ -183,16 +183,18 @@ static const struct em_opcode_t opcode_table_0F3A[256] = {
 
 /* Emulate accesses to guest memory */
 static int segmented_read(struct em_context_t *ctxt,
-                          struct operand_mem_t *addr,
+                          struct operand_mem_t *mem,
                           void *data, unsigned size)
 {
+    ctxt->ops->read_mem(ctxt->vcpu, mem->ea, data, size);
     return EM_CONTINUE;
 }
 
 static int segmented_write(struct em_context_t *ctxt,
-                           struct operand_mem_t *addr,
+                           struct operand_mem_t *mem,
                            void *data, unsigned size)
 {
+    ctxt->ops->write_mem(ctxt->vcpu, mem->ea, data, size);
     return EM_CONTINUE;
 }
 
@@ -232,29 +234,29 @@ static int operand_write(struct em_context_t *ctxt,
 
 static uint8_t insn_fetch_u8(struct em_context_t *ctxt)
 {
-    uint8_t result = *(uint8_t*)(ctxt->insn);
-    ctxt->insn += 1;
+    uint8_t result = *(uint8_t*)(&ctxt->insn[ctxt->len]);
+    ctxt->len += 1;
     return result;
 }
 
 static uint16_t insn_fetch_u16(struct em_context_t *ctxt)
 {
-    uint16_t result = *(uint16_t*)(ctxt->insn);
-    ctxt->insn += 2;
+    uint16_t result = *(uint16_t*)(&ctxt->insn[ctxt->len]);
+    ctxt->len += 2;
     return result;
 }
 
 static uint32_t insn_fetch_u32(struct em_context_t *ctxt)
 {
-    uint32_t result = *(uint32_t*)(ctxt->insn);
-    ctxt->insn += 4;
+    uint32_t result = *(uint32_t*)(&ctxt->insn[ctxt->len]);
+    ctxt->len += 4;
     return result;
 }
 
 static uint64_t insn_fetch_u64(struct em_context_t *ctxt)
 {
-    uint64_t result = *(uint64_t*)(ctxt->insn);
-    ctxt->insn += 8;
+    uint64_t result = *(uint64_t*)(&ctxt->insn[ctxt->len]);
+    ctxt->len += 8;
     return result;
 }
 
@@ -304,7 +306,7 @@ static void decode_prefixes(struct em_context_t *ctxt)
             ctxt->override_address_size = 1;
             break;
         default:
-            ctxt->insn--;
+            ctxt->len--;
             return;
         }
     }
@@ -327,11 +329,51 @@ static void decode_op_modrm_reg(em_context_t *ctxt,
 static void decode_op_modrm_rm(em_context_t *ctxt,
                                em_operand_t *op)
 {
+    uint64_t disp;
+    uint32_t reg_base;
     uint32_t reg_index;
+    uint8_t scale;
 
-    op->type = OP_REG;
+    // Register operand
+    if (ctxt->modrm.mod == 3) {
+        op->type = OP_REG;
+        op->size = ctxt->operand_size;
+        op->reg.index = ctxt->modrm.rm | (ctxt->rex.b << 3);
+        return;
+    }
+
+    // Memory operand
+    op->type = OP_MEM;
     op->size = ctxt->operand_size;
-    op->reg.index = ctxt->modrm.rm + (ctxt->rex.b << 3);
+    op->mem.ea = 0;
+    if (ctxt->address_size == 2) {
+        /* Intel SDM Vol. 2A:
+         * Table 2-1. 16-Bit Addressing Forms with the ModR/M Byte */
+    }
+    if (ctxt->address_size == 4 || ctxt->address_size == 8) {
+        /* Intel SDM Vol. 2A:
+         * Table 2-2. 32-Bit Addressing Forms with the ModR/M Byte */
+        if (ctxt->modrm.rm == 4) {
+            /* Intel SDM Vol. 2A:
+             * Table 2-3. 32-Bit Addressing Forms with the SIB Byte */
+            ctxt->sib.value = insn_fetch_u8(ctxt);
+            reg_base  = ctxt->sib.base  | (ctxt->rex.b << 3);
+            reg_index = ctxt->sib.index | (ctxt->rex.x << 3);
+            op->mem.ea += READ_GPR(reg_base);
+            op->mem.ea += READ_GPR(reg_index) * (1 << ctxt->sib.scale);
+        }
+        if (ctxt->modrm.mod == 0 && ctxt->modrm.rm == 5) {
+            op->mem.ea += insn_fetch_u32(ctxt);
+        }
+
+        // Dislacement
+        if (ctxt->modrm.mod == 1) {
+            op->mem.ea += insn_fetch_u8(ctxt);
+        }
+        if (ctxt->modrm.mod == 2) {
+            op->mem.ea += insn_fetch_u32(ctxt);
+        }
+    }
 }
 
 static void decode_op_imm(em_context_t *ctxt,
@@ -397,6 +439,7 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     ctxt->override_operand_size = 0;
     ctxt->override_address_size = 0;
     ctxt->insn = insn;
+    ctxt->len = 0;
     decode_prefixes(ctxt);
 
     /* Apply legacy prefixes */

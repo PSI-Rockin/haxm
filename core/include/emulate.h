@@ -93,6 +93,8 @@ typedef struct em_operand_t em_operand_t;
 typedef struct em_vcpu_ops_t {
     uint64_t (*read_gpr)(void *vcpu, uint32_t reg_index);
     void (*write_gpr)(void *vcpu, uint32_t reg_index, uint64_t value);
+    void (*read_mem)(void *vcpu, uint64_t ea, uint64_t *value, uint32_t size);
+    void (*write_mem)(void *vcpu, uint64_t ea, uint64_t *value, uint32_t size);
 } em_vcpu_ops_t;
 
 typedef void (em_operand_decoder_t)(em_context_t *ctxt,
@@ -115,7 +117,7 @@ typedef struct em_operand_t {
     em_operand_type_t type;
     union {
         struct operand_mem_t {
-            uint64_t addr;
+            uint64_t ea;
             uint32_t segment;
         } mem;
         struct operand_reg_t {
@@ -133,6 +135,7 @@ typedef struct em_context_t {
     uint32_t operand_size;
     uint32_t address_size;
     uint8_t *insn;
+    uint32_t len;
     int override_segment;
     int override_operand_size;
     int override_address_size;

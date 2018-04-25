@@ -45,22 +45,70 @@ struct test_cpu_t {
     uint8_t mem[0x100];
 };
 
-static uint64_t test_read_gpr(void* obj, uint32_t reg_index)
-{
+uint64_t test_read_gpr(void* obj, uint32_t reg_index) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
-    if (reg_index >= 16)
+    if (reg_index >= 16) {
         throw std::exception("Register index OOB");
+    }
     return vcpu->gpr[reg_index];
 }
 
-static void test_write_gpr(void* obj, uint32_t reg_index, uint64_t value)
-{
+void test_write_gpr(void* obj, uint32_t reg_index, uint64_t value) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
-    if (reg_index >= 16)
+    if (reg_index >= 16) {
         throw std::exception("Register index OOB");
+    }
     vcpu->gpr[reg_index] = value;
 }
 
+void test_read_mem(void* obj, uint64_t ea,
+                   uint64_t* value, uint32_t size) {
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    if (ea + size >= 0x100) {
+        throw std::exception("Effective address OOB");
+    }
+    switch (size) {
+    case 1:
+        *value = *(uint8_t*)(&vcpu->mem[ea]);
+        break;
+    case 2:
+        *value = *(uint16_t*)(&vcpu->mem[ea]);
+        break;
+    case 4:
+        *value = *(uint32_t*)(&vcpu->mem[ea]);
+        break;
+    case 8:
+        *value = *(uint64_t*)(&vcpu->mem[ea]);
+        break;
+    default:
+        throw std::exception("Unsupported access size");
+    }
+}
+void test_write_mem(void* obj, uint64_t ea,
+                    uint64_t* value, uint32_t size) {
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    if (ea + size > 0x100) {
+        throw std::exception("Effective address OOB");
+    }
+    switch (size) {
+    case 1:
+        *(uint8_t*)(&vcpu->mem[ea]) = *value;
+        break;
+    case 2:
+        *(uint16_t*)(&vcpu->mem[ea]) = *value;
+        break;
+    case 4:
+        *(uint32_t*)(&vcpu->mem[ea]) = *value;
+        break;
+    case 8:
+        *(uint64_t*)(&vcpu->mem[ea]) = *value;
+        break;
+    default:
+        throw std::exception("Unsupported access size");
+    }
+}
+
+/* Test class */
 class EmulatorTest : public testing::Test {
 private:
     ks_engine* ks;
@@ -80,6 +128,8 @@ protected:
         // Initialize emulator
         em_ops.read_gpr = test_read_gpr;
         em_ops.write_gpr = test_write_gpr;
+        em_ops.read_mem = test_read_mem;
+        em_ops.write_mem = test_write_mem;
         em_ctxt.ops = &em_ops;
         em_ctxt.mode = EM_MODE_PROT64;
         em_ctxt.vcpu = &vcpu;
@@ -144,7 +194,6 @@ protected:
             vcpu_expected.flags = test.out_flags;
             run(insn, vcpu_original, vcpu_expected);
         }
-        return;
         // Test: m8, imm8
         for (const auto& test : tests) {
             snprintf(insn, sizeof(insn), "%s byte ptr [edx + 2*ecx + 0x10], %d", insn_name, test.in_src);
@@ -154,7 +203,7 @@ protected:
             (uint8_t&)vcpu_original.mem[0x40] = test.in_dst;
             vcpu_original.flags = test.in_flags;
             vcpu_expected = vcpu_original;
-            (uint8_t&)vcpu_original.mem[0x40] = test.out_dst;
+            (uint8_t&)vcpu_expected.mem[0x40] = test.out_dst;
             vcpu_expected.flags = test.out_flags;
             run(insn, vcpu_original, vcpu_expected);
         }
@@ -191,7 +240,19 @@ protected:
             vcpu_expected.flags = test.out_flags;
             run(insn, vcpu_original, vcpu_expected);
         }
-        // Test: m16, imm16 (TODO)
+        // Test: m16, imm16
+        for (const auto& test : tests) {
+            snprintf(insn, sizeof(insn), "%s word ptr [edx + 2*ecx + 0x10], %d", insn_name, test.in_src);
+            vcpu_original = {};
+            vcpu_original.gpr[REG_RDX] = 0x20;
+            vcpu_original.gpr[REG_RCX] = 0x08;
+            (uint16_t&)vcpu_original.mem[0x40] = test.in_dst;
+            vcpu_original.flags = test.in_flags;
+            vcpu_expected = vcpu_original;
+            (uint16_t&)vcpu_expected.mem[0x40] = test.out_dst;
+            vcpu_expected.flags = test.out_flags;
+            run(insn, vcpu_original, vcpu_expected);
+        }
         // Test: r16, m16 (TODO)
         // Test: m16, r16 (TODO)
     }
@@ -225,7 +286,19 @@ protected:
             vcpu_expected.flags = test.out_flags;
             run(insn, vcpu_original, vcpu_expected);
         }
-        // Test: m32, imm32 (TODO)
+        // Test: m32, imm32
+        for (const auto& test : tests) {
+            snprintf(insn, sizeof(insn), "%s dword ptr [edx + 2*ecx + 0x10], %d", insn_name, test.in_src);
+            vcpu_original = {};
+            vcpu_original.gpr[REG_RDX] = 0x20;
+            vcpu_original.gpr[REG_RCX] = 0x08;
+            (uint32_t&)vcpu_original.mem[0x40] = test.in_dst;
+            vcpu_original.flags = test.in_flags;
+            vcpu_expected = vcpu_original;
+            (uint32_t&)vcpu_expected.mem[0x40] = test.out_dst;
+            vcpu_expected.flags = test.out_flags;
+            run(insn, vcpu_original, vcpu_expected);
+        }
         // Test: r32, m32 (TODO)
         // Test: m32, r32 (TODO)
     }
@@ -259,7 +332,19 @@ protected:
             vcpu_expected.flags = test.out_flags;
             run(insn, vcpu_original, vcpu_expected);
         }
-        // Test: m64, imm32 (TODO)
+        // Test: m64, imm32
+        for (const auto& test : tests) {
+            snprintf(insn, sizeof(insn), "%s qword ptr [edx + 2*ecx + 0x10], %d", insn_name, test.in_src);
+            vcpu_original = {};
+            vcpu_original.gpr[REG_RDX] = 0x20;
+            vcpu_original.gpr[REG_RCX] = 0x08;
+            (uint64_t&)vcpu_original.mem[0x40] = test.in_dst;
+            vcpu_original.flags = test.in_flags;
+            vcpu_expected = vcpu_original;
+            (uint64_t&)vcpu_expected.mem[0x40] = test.out_dst;
+            vcpu_expected.flags = test.out_flags;
+            run(insn, vcpu_original, vcpu_expected);
+        }
         // Test: r64, m64 (TODO)
         // Test: m64, r64 (TODO)
     }
