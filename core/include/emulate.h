@@ -91,8 +91,8 @@ typedef struct em_operand_t em_operand_t;
     (RFLAGS_CF | RFLAGS_PF | RFLAGS_AF | RFLAGS_ZF | RFLAGS_SF | RFLAGS_OF)
 
 typedef struct em_vcpu_ops_t {
-    uint64_t (*read_gpr)(void *vcpu, uint32_t reg_index);
-    void (*write_gpr)(void *vcpu, uint32_t reg_index, uint64_t value);
+    uint64_t (*read_gpr)(void *vcpu, uint32_t reg_index, uint32_t size);
+    void (*write_gpr)(void *vcpu, uint32_t reg_index, uint64_t value, uint32_t size);
     void (*read_mem)(void *vcpu, uint64_t ea, uint64_t *value, uint32_t size);
     void (*write_mem)(void *vcpu, uint64_t ea, uint64_t *value, uint32_t size);
 } em_vcpu_ops_t;

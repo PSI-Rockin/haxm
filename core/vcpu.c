@@ -2656,7 +2656,7 @@ static int hax_setup_fastmmio(struct vcpu_t *vcpu, struct hax_tunnel *htun,
 }
 #endif
 
-static uint64_t vcpu_read_gpr(struct vcpu_t *vcpu, uint32_t reg_index)
+static uint64_t vcpu_read_gpr(struct vcpu_t *vcpu, uint32_t reg_index, uint32_t size)
 {
     if (reg_index >= 16) {
         hax_panic_vcpu(vcpu, "vcpu_read_gpr: Invalid register index\n");
@@ -2665,7 +2665,7 @@ static uint64_t vcpu_read_gpr(struct vcpu_t *vcpu, uint32_t reg_index)
     return vcpu->state->_regs[reg_index];
 }
 
-static void vcpu_write_gpr(struct vcpu_t *vcpu, uint32_t reg_index, uint64_t value)
+static void vcpu_write_gpr(struct vcpu_t *vcpu, uint32_t reg_index, uint64_t value, uint32_t size)
 {
     if (reg_index >= 16) {
         hax_panic_vcpu(vcpu, "vcpu_write_gpr: Invalid register index\n");
@@ -2674,9 +2674,19 @@ static void vcpu_write_gpr(struct vcpu_t *vcpu, uint32_t reg_index, uint64_t val
     vcpu->state->_regs[reg_index] = value;
 }
 
+static uint64_t vcpu_read_mem(struct vcpu_t *vcpu, uint64_t ea, uint64_t *value, uint32_t size)
+{
+}
+
+static void vcpu_write_mem(struct vcpu_t *vcpu, uint64_t ea, uint64_t *value, uint32_t size)
+{
+}
+
 static const struct em_vcpu_ops_t em_ops = {
     .read_gpr = vcpu_read_gpr,
     .write_gpr = vcpu_write_gpr,
+    .read_mem = vcpu_write_mem,
+    .write_mem = vcpu_write_mem,
 };
 
 static void vcpu_init_emulator(struct vcpu_t *vcpu)
