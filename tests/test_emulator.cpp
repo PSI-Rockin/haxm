@@ -55,7 +55,8 @@ uint64_t test_read_gpr(void* obj, uint32_t reg_index, uint32_t size) {
     return value;
 }
 
-void test_write_gpr(void* obj, uint32_t reg_index, uint64_t value, uint32_t size) {
+void test_write_gpr(void* obj, uint32_t reg_index,
+                    uint64_t value, uint32_t size) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
     if (reg_index >= 16) {
         throw std::exception("Register index OOB");
@@ -63,11 +64,11 @@ void test_write_gpr(void* obj, uint32_t reg_index, uint64_t value, uint32_t size
     memcpy(&vcpu->gpr[reg_index], &value, size);
 }
 
-void test_read_mem(void* obj, uint64_t ea,
-                   uint64_t* value, uint32_t size) {
+em_status_t test_read_memory(void* obj, uint64_t ea,
+                             uint64_t* value, uint32_t size) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
     if (ea + size >= 0x100) {
-        throw std::exception("Effective address OOB");
+        return EM_ERROR;
     }
     switch (size) {
     case 1:
@@ -83,14 +84,16 @@ void test_read_mem(void* obj, uint64_t ea,
         *value = *(uint64_t*)(&vcpu->mem[ea]);
         break;
     default:
-        throw std::exception("Unsupported access size");
+        return EM_ERROR;
     }
+    return EM_CONTINUE;
 }
-void test_write_mem(void* obj, uint64_t ea,
-                    uint64_t* value, uint32_t size) {
+
+em_status_t test_write_memory(void* obj, uint64_t ea,
+                              uint64_t* value, uint32_t size) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
     if (ea + size > 0x100) {
-        throw std::exception("Effective address OOB");
+        return EM_ERROR;
     }
     switch (size) {
     case 1:
@@ -106,8 +109,9 @@ void test_write_mem(void* obj, uint64_t ea,
         *(uint64_t*)(&vcpu->mem[ea]) = *value;
         break;
     default:
-        throw std::exception("Unsupported access size");
+        return EM_ERROR;
     }
+    return EM_CONTINUE;
 }
 
 /* Test class */
@@ -130,8 +134,8 @@ protected:
         // Initialize emulator
         em_ops.read_gpr = test_read_gpr;
         em_ops.write_gpr = test_write_gpr;
-        em_ops.read_mem = test_read_mem;
-        em_ops.write_mem = test_write_mem;
+        em_ops.read_memory = test_read_memory;
+        em_ops.write_memory = test_write_memory;
         em_ctxt.ops = &em_ops;
         em_ctxt.mode = EM_MODE_PROT64;
         em_ctxt.vcpu = &vcpu;

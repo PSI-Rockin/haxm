@@ -233,31 +233,29 @@ static const struct em_opcode_t opcode_table_0F3A[256] = {
 };
 
 /* Emulate accesses to guest memory */
-static int segmented_read(struct em_context_t *ctxt,
-                          struct operand_mem_t *mem,
-                          void *data, unsigned size)
+static em_status_t segmented_read(struct em_context_t *ctxt,
+                                  struct operand_mem_t *mem,
+                                  void *data, unsigned size)
 {
-    ctxt->ops->read_mem(ctxt->vcpu, mem->ea, data, size);
-    return EM_CONTINUE;
+    return ctxt->ops->read_memory(ctxt->vcpu, mem->ea, data, size);
 }
 
-static int segmented_write(struct em_context_t *ctxt,
-                           struct operand_mem_t *mem,
-                           void *data, unsigned size)
+static em_status_t segmented_write(struct em_context_t *ctxt,
+                                   struct operand_mem_t *mem,
+                                   void *data, unsigned size)
 {
-    ctxt->ops->write_mem(ctxt->vcpu, mem->ea, data, size);
-    return EM_CONTINUE;
+    return ctxt->ops->write_memory(ctxt->vcpu, mem->ea, data, size);
 }
 
-static int operand_read(struct em_context_t *ctxt,
-                        struct em_operand_t *op)
+static em_status_t operand_read(struct em_context_t *ctxt,
+                                struct em_operand_t *op)
 {
     switch (op->type) {
     case OP_NONE:
     case OP_IMM:
         return EM_CONTINUE;
     case OP_REG:
-        op->value = READ_GPR(op->reg.index, op->size);
+        READ_GPR(op->reg.index, op->size);
         return EM_CONTINUE;
     case OP_MEM:
         return segmented_read(ctxt, &op->mem, &op->value, op->size);
@@ -266,8 +264,8 @@ static int operand_read(struct em_context_t *ctxt,
     }
 }
 
-static int operand_write(struct em_context_t *ctxt,
-                         struct em_operand_t *op)
+static em_status_t operand_write(struct em_context_t *ctxt,
+                                 struct em_operand_t *op)
 {
     switch (op->type) {
     case OP_NONE:
@@ -505,7 +503,7 @@ static void em_xchg(struct em_context_t *ctxt)
     operand_write(ctxt, &ctxt->src2);
 }
 
-int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
+em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
 {
     uint8_t b;
     uint64_t flags;
@@ -610,13 +608,14 @@ int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     return 0;
 }
 
-int em_emulate_insn(struct em_context_t *ctxt)
+em_status_t em_emulate_insn(struct em_context_t *ctxt)
 {
     const struct em_opcode_t *opcode = &ctxt->opcode;
     void(*fast_handler)();
     void(*soft_handler)(em_context_t*);
     uint64_t eflags;
-    int rc;
+    em_status_t rc;
+    ctxt->finished = false;
 
     // TODO: Permissions, exceptions, etc.
 
@@ -656,6 +655,7 @@ int em_emulate_insn(struct em_context_t *ctxt)
         goto done;
 
     rc = EM_CONTINUE;
+    ctxt->finished = true;
 done:
     return rc;
 }

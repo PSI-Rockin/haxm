@@ -39,10 +39,11 @@
 
 #include "emulate_ops.h"
 
-/* Emulation failed */
-#define EM_ERROR       -1
-/* Emulation completed successfully */
-#define EM_CONTINUE     0
+typedef enum {
+    EM_CONTINUE    =  0,  /* Emulation completed successfully */
+    EM_EXIT_MMIO   =  1,  /* Emulation requires external MMIO handling */
+    EM_ERROR       = -1,  /* Emulation failed */
+} em_status_t;
 
 typedef enum {
     EM_MODE_REAL,    /* Real mode */
@@ -91,10 +92,14 @@ typedef struct em_operand_t em_operand_t;
     (RFLAGS_CF | RFLAGS_PF | RFLAGS_AF | RFLAGS_ZF | RFLAGS_SF | RFLAGS_OF)
 
 typedef struct em_vcpu_ops_t {
-    uint64_t (*read_gpr)(void *vcpu, uint32_t reg_index, uint32_t size);
-    void (*write_gpr)(void *vcpu, uint32_t reg_index, uint64_t value, uint32_t size);
-    void (*read_mem)(void *vcpu, uint64_t ea, uint64_t *value, uint32_t size);
-    void (*write_mem)(void *vcpu, uint64_t ea, uint64_t *value, uint32_t size);
+    uint64_t (*read_gpr)(void *vcpu, uint32_t reg_index,
+                         uint32_t size);
+    void (*write_gpr)(void *vcpu, uint32_t reg_index,
+                      uint64_t value, uint32_t size);
+    em_status_t (*read_memory)(void *vcpu, uint64_t ea,
+                               uint64_t *value, uint32_t size);
+    em_status_t (*write_memory)(void *vcpu, uint64_t ea,
+                                uint64_t *value, uint32_t size);
 } em_vcpu_ops_t;
 
 typedef void (em_operand_decoder_t)(em_context_t *ctxt,
@@ -130,6 +135,7 @@ typedef struct em_operand_t {
 typedef struct em_context_t {
     void *vcpu;
     const struct em_vcpu_ops_t *ops;
+    bool finished;
 
     em_mode_t mode;
     uint32_t operand_size;
@@ -180,7 +186,7 @@ typedef struct em_context_t {
     } sib;
 } em_context_t;
 
-int em_decode_insn(struct em_context_t *ctxt, uint8_t *insn);
-int em_emulate_insn(struct em_context_t *ctxt);
+em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn);
+em_status_t em_emulate_insn(struct em_context_t *ctxt);
 
 #endif /* HAX_CORE_EMULATE_H_ */
