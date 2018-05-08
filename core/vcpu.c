@@ -1448,6 +1448,7 @@ int vcpu_execute(struct vcpu_t *vcpu)
 {
     struct hax_tunnel *htun = vcpu->tunnel;
     struct em_context_t *em_ctxt = &vcpu->emulate_ctxt;
+    em_status_t rc;
     int err = 0;
 
     hax_mutex_lock(vcpu->tmutex);
@@ -1464,13 +1465,18 @@ int vcpu_execute(struct vcpu_t *vcpu)
     if (htun->_exit_status == HAX_EXIT_IO) {
         handle_io_post(vcpu, htun);
     }
-    // Continue until emulation finished
+    // Continue until emulation finishes
     if (!em_ctxt->finished) {
-        switch (em_emulate_insn(em_ctxt)) {
-        case EM_EXIT_MMIO:
-            return HAX_EXIT_FAST_MMIO;
-        case EM_ERROR:
-            return HAX_EXIT;
+        rc = em_emulate_insn(em_ctxt);
+        if (rc < 0) {
+            hax_panic_vcpu(vcpu, "%s: em_emulate_insn() failed: vcpu_id=%u",
+                           __func__, vcpu->vcpu_id);
+            err = HAX_RESUME;
+            goto out;
+        }
+        if (rc > 0) {
+            err = HAX_EXIT;
+            goto out;
         }
     }
     err = cpu_vmx_execute(vcpu, htun);
@@ -1873,43 +1879,6 @@ static void vcpu_exit_fpu_state(struct vcpu_t *vcpu)
     }
 }
 
-struct decode {
-    paddr_t gpa;
-    paddr_t value;
-    uint8_t size;       // Operand/value size in bytes (1, 2, 4 or 8)
-    uint8_t addr_size;  // Address size in bytes (2, 4 or 8)
-    uint8_t opcode_dir;
-    uint8_t reg_index;
-    vaddr_t va;         // Non-I/O GVA operand (e.g. in MOVS instructions)
-    paddr_t src_pa;
-    paddr_t dst_pa;
-    uint8_t advance;
-    bool    has_rep;    // Whether the instruction is prefixed with REP
-};
-
-// ModR/M byte (see IA SDM Vol. 2A 2.1 Figure 2-1)
-union modrm_byte {
-    uint8_t value;
-    struct {
-        uint8_t rm  : 3;
-        uint8_t reg : 3;
-        uint8_t mod : 2;
-    };
-} PACKED;
-
-// SIB byte (see IA SDM Vol. 2A 2.1 Figure 2-1)
-union sib_byte {
-    uint8_t value;
-    struct {
-        uint8_t base  : 3;
-        uint8_t index : 3;
-        uint8_t scale : 2;
-    };
-} PACKED;
-
-// An instruction can have up to 4 legacy prefixes:
-//   http://wiki.osdev.org/X86-64_Instruction_Encoding
-#define INSTR_MAX_LEGACY_PF         4
 // Instructions are never longer than 15 bytes:
 //   http://wiki.osdev.org/X86-64_Instruction_Encoding
 #define INSTR_MAX_LEN               15
@@ -1973,16 +1942,16 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
 #ifdef CONFIG_HAX_EPT2
     if (mmio_fetch_instruction(vcpu, va, instr, INSTR_MAX_LEN)) {
         hax_panic_vcpu(vcpu, "%s: mmio_fetch_instruction() failed: vcpu_id=%u,"
-            " gva=0x%llx (CS:IP=0x%llx:0x%llx)\n",
-            __func__, vcpu->vcpu_id, va, cs_base, rip);
+                       " gva=0x%llx (CS:IP=0x%llx:0x%llx)\n",
+                       __func__, vcpu->vcpu_id, va, cs_base, rip);
         dump_vmcs(vcpu);
         return -1;
     }
 #else  // !CONFIG_HAX_EPT2
     if (!vcpu_read_guest_virtual(vcpu, va, &instr, INSTR_MAX_LEN, INSTR_MAX_LEN,
-        0)) {
+                                 0)) {
         hax_panic_vcpu(vcpu, "Error reading instruction at 0x%llx for decoding"
-            " (CS:IP=0x%llx:0x%llx)\n", va, cs_base, rip);
+                       " (CS:IP=0x%llx:0x%llx)\n", va, cs_base, rip);
         dump_vmcs(vcpu);
         return -1;
     }
@@ -1990,17 +1959,18 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
 
     rc = em_decode_insn(em_ctx, instr);
     if (rc != EM_CONTINUE) {
-        return HAX_EXIT;
+        hax_panic_vcpu(vcpu, "%s: em_decode_insn() failed: vcpu_id=%u",
+                       __func__, vcpu->vcpu_id);
+        return HAX_RESUME;
     }
 
     rc = em_emulate_insn(em_ctx);
-    switch (rc) {
-    case EM_EXIT_MMIO:
-        return HAX_EXIT_FAST_MMIO;
-    case EM_ERROR:
-        return HAX_EXIT;
+    if (rc == EM_ERROR) {
+        hax_panic_vcpu(vcpu, "%s: em_emulate_insn() failed: vcpu_id=%u",
+                       __func__, vcpu->vcpu_id);
+        return HAX_RESUME;
     }
-    return HAX_RESUME;
+    return HAX_EXIT;
 }
 
 static uint64_t vcpu_read_gpr(void *obj, uint32_t reg_index, uint32_t size)
@@ -2031,6 +2001,12 @@ static em_status_t vcpu_read_memory(void *obj, uint64_t ea,
 
     vcpu_translate(vcpu, ea, 0, &pa, NULL, false);
     if (is_mmio_address(vcpu, pa)) {
+        struct hax_tunnel *htun = vcpu->tunnel;
+        struct hax_fastmmio *hft = (struct hax_fastmmio *)vcpu->io_buf;
+        htun->_exit_status = HAX_EXIT_FAST_MMIO;
+        hft->gpa = pa;
+        hft->size = size;
+        hft->direction = 0;
         return EM_EXIT_MMIO;
     }
     else {
@@ -2049,6 +2025,13 @@ static em_status_t vcpu_write_memory(void *obj, uint64_t ea,
 
     vcpu_translate(vcpu, ea, 0, &pa, NULL, false);
     if (is_mmio_address(vcpu, pa)) {
+        struct hax_tunnel *htun = vcpu->tunnel;
+        struct hax_fastmmio *hft = (struct hax_fastmmio *)vcpu->io_buf;
+        htun->_exit_status = HAX_EXIT_FAST_MMIO;
+        hft->gpa = pa;
+        hft->size = size;
+        hft->value = *value;
+        hft->direction = 1;
         return EM_EXIT_MMIO;
     }
     else {
@@ -2094,11 +2077,7 @@ static int exit_exc_nmi(struct vcpu_t *vcpu, struct hax_tunnel *htun)
                 if (handle_vtlb(vcpu))
                     return HAX_RESUME;
 
-                paddr_t pa;
-                struct decode dec;
-                int ret;
                 vaddr_t cr2 = vmx(vcpu, exit_qualification).address;
-
                 return vcpu_emulate_insn(vcpu);
             } else {
                 hax_panic_vcpu(vcpu, "Page fault shouldn't happen when EPT is "
@@ -3399,7 +3378,6 @@ static int exit_ept_violation(struct vcpu_t *vcpu, struct hax_tunnel *htun)
 {
     exit_qualification_t *qual = &vmx(vcpu, exit_qualification);
     paddr_t gpa;
-    struct decode dec;
     int ret = 0;
 
     htun->_exit_reason = vmx(vcpu, exit_reason).basic_reason;
@@ -3411,7 +3389,6 @@ static int exit_ept_violation(struct vcpu_t *vcpu, struct hax_tunnel *htun)
     }
 
     gpa = vmread(vcpu, VM_EXIT_INFO_GUEST_PHYSICAL_ADDRESS);
-    dec.gpa = gpa;
 
 #ifdef CONFIG_HAX_EPT2
     ret = ept_handle_access_violation(&vcpu->vm->gpa_space, &vcpu->vm->ept_tree,

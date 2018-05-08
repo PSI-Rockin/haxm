@@ -143,8 +143,8 @@ protected:
     }
 
     void run(const char* insn,
-        const test_cpu_t& initial_state,
-        const test_cpu_t& expected_state) {
+             const test_cpu_t& initial_state,
+             const test_cpu_t& expected_state) {
         uint8_t* code;
         size_t count;
         size_t size;
@@ -243,15 +243,15 @@ protected:
 
     template <int N>
     void test_insn_rN_iN(const char* insn_name,
-        const std::vector<test_f6alu_t>& tests) {
+                         const std::vector<test_f6alu_t>& tests) {
         char insn[256];
         test_cpu_t vcpu_original;
         test_cpu_t vcpu_expected;
 
         // Run tests
         for (const auto& test : tests) {
-            snprintf(insn, sizeof(insn), "%s %s,%lld", insn_name,
-                gpr<N>(REG_RAX), test.in_src);
+            snprintf(insn, sizeof(insn), "%s %s,%d", insn_name,
+                gpr<N>(REG_RAX), (uint32_t)test.in_src);
             vcpu_original = {};
             vcpu_original.gpr[REG_RAX] = test.in_dst;
             vcpu_original.flags = test.in_flags;
@@ -264,15 +264,15 @@ protected:
 
     template <int N>
     void test_insn_mN_iN(const char* insn_name,
-        const std::vector<test_f6alu_t>& tests) {
+                         const std::vector<test_f6alu_t>& tests) {
         char insn[256];
         test_cpu_t vcpu_original;
         test_cpu_t vcpu_expected;
 
         // Run tests
         for (const auto& test : tests) {
-            snprintf(insn, sizeof(insn), "%s %s ptr [edx + 2*ecx + 0x10], %lld",
-                insn_name, mem<N>(), test.in_src);
+            snprintf(insn, sizeof(insn), "%s %s ptr [edx + 2*ecx + 0x10], %d",
+                insn_name, mem<N>(), (uint32_t)test.in_src);
             vcpu_original = {};
             vcpu_original.gpr[REG_RDX] = 0x20;
             vcpu_original.gpr[REG_RCX] = 0x08;
@@ -287,7 +287,7 @@ protected:
 
     template <int N>
     void test_insn_rN_mN(const char* insn_name,
-        const std::vector<test_f6alu_t>& tests) {
+                         const std::vector<test_f6alu_t>& tests) {
         char insn[256];
         test_cpu_t vcpu_original;
         test_cpu_t vcpu_expected;
@@ -297,7 +297,7 @@ protected:
 
     template <int N>
     void test_insn_mN_rN(const char* insn_name,
-        const std::vector<test_f6alu_t>& tests) {
+                         const std::vector<test_f6alu_t>& tests) {
         char insn[256];
         test_cpu_t vcpu_original;
         test_cpu_t vcpu_expected;
