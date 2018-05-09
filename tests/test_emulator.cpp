@@ -65,14 +65,14 @@ void test_write_gpr(void* obj, uint32_t reg_index,
     memcpy(&vcpu->gpr[reg_index], &value, size);
 }
 
-static uint64_t vcpu_get_segment_base(void* obj, uint32_t segment) {
+static uint64_t test_get_segment_base(void* obj, uint32_t segment) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
     return 0ULL;
 }
 
-void test_write_rip(void* obj, uint64_t value) {
+void test_advance_rip(void* obj, uint64_t len) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
-    vcpu->rip = value;
+    vcpu->rip += len;
 }
 
 em_status_t test_read_memory(void* obj, uint64_t ea,
@@ -145,7 +145,8 @@ protected:
         // Initialize emulator
         em_ops.read_gpr = test_read_gpr;
         em_ops.write_gpr = test_write_gpr;
-        em_ops.write_rip = test_write_rip;
+        em_ops.get_segment_base = test_get_segment_base;
+        em_ops.advance_rip = test_advance_rip;
         em_ops.read_memory = test_read_memory;
         em_ops.write_memory = test_write_memory;
         em_ctxt.ops = &em_ops;

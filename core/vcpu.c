@@ -1960,14 +1960,20 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
     em_ctxt->rip = rip;
     em_ctxt->eflags = vcpu->state->_rflags;
     rc = em_decode_insn(em_ctxt, instr);
-    if (rc != EM_CONTINUE) {
+    if (rc < 0) {
         hax_panic_vcpu(vcpu, "%s: em_decode_insn() failed: vcpu_id=%u",
                        __func__, vcpu->vcpu_id);
         return HAX_RESUME;
     }
-
+    if (em_ctxt->len != vcpu->vmx.exit_instr_length) {
+        hax_debug("Inferred instruction length %u does not match VM-exit"
+                  " instruction length %u (CS:IP=0x%llx:0x%llx, instr[0..5]="
+                  "0x%x 0x%x 0x%x 0x%x 0x%x 0x%x)\n", em_ctxt->len,
+                  vcpu->vmx.exit_instr_length, cs_base, rip, instr[0], instr[1],
+                  instr[2], instr[3], instr[4], instr[5]);
+    }
     rc = em_emulate_insn(em_ctxt);
-    if (rc == EM_ERROR) {
+    if (rc < 0) {
         hax_panic_vcpu(vcpu, "%s: em_emulate_insn() failed: vcpu_id=%u",
                        __func__, vcpu->vcpu_id);
         return HAX_RESUME;
@@ -2016,10 +2022,10 @@ static uint64_t vcpu_get_segment_base(void *obj, uint32_t segment)
     }
 }
 
-static void vcpu_write_rip(void *obj, uint64_t value)
+static void vcpu_advance_rip(void *obj, uint64_t len)
 {
     struct vcpu_t *vcpu = obj;
-    vcpu->state->_rip = value;
+    advance_rip(vcpu);
 }
 
 static em_status_t vcpu_read_memory(void *obj, uint64_t ea,
@@ -2044,6 +2050,15 @@ static em_status_t vcpu_read_memory(void *obj, uint64_t ea,
         }
         return EM_CONTINUE;
     }
+}
+
+static em_status_t vcpu_read_memory_post(void *obj,
+                                    uint64_t *value, uint32_t size)
+{
+    struct vcpu_t *vcpu = obj;
+    struct hax_fastmmio *hft = (struct hax_fastmmio *)vcpu->io_buf;
+    memcpy(value, &hft->value, size);
+    return EM_CONTINUE;
 }
 
 static em_status_t vcpu_write_memory(void *obj, uint64_t ea,
@@ -2075,8 +2090,9 @@ static const struct em_vcpu_ops_t em_ops = {
     .read_gpr = vcpu_read_gpr,
     .write_gpr = vcpu_write_gpr,
     .get_segment_base = vcpu_get_segment_base,
-    .write_rip = vcpu_write_rip,
-    .read_memory = vcpu_write_memory,
+    .advance_rip = vcpu_advance_rip,
+    .read_memory = vcpu_read_memory,
+    .read_memory_post = vcpu_read_memory_post,
     .write_memory = vcpu_write_memory,
 };
 

@@ -42,7 +42,6 @@
 typedef enum {
     EM_CONTINUE      =  0,  /* Emulation completed successfully */
     EM_EXIT_MMIO     =  1,  /* Emulation requires external MMIO handling */
-    EM_EXIT_RESTART  =  2,  /* Emulation requires instruction restart (e.g. REPE/REPNE) */
     EM_ERROR         = -1,  /* Emulation failed */
 } em_status_t;
 
@@ -107,8 +106,10 @@ typedef struct em_vcpu_ops_t {
     void (*write_gpr)(void *vcpu, uint32_t reg_index,
                       uint64_t value, uint32_t size);
     uint64_t (*get_segment_base)(void *vcpu, uint32_t segment);
-    void (*write_rip)(void *vcpu, uint64_t value);
+    void (*advance_rip)(void *vcpu, uint64_t len);
     em_status_t (*read_memory)(void *vcpu, uint64_t ea,
+                               uint64_t *value, uint32_t size);
+    em_status_t (*read_memory_post)(void *vcpu,
                                uint64_t *value, uint32_t size);
     em_status_t (*write_memory)(void *vcpu, uint64_t ea,
                                 uint64_t *value, uint32_t size);
@@ -131,6 +132,7 @@ typedef struct em_opcode_t {
 /* Context */
 typedef struct em_operand_t {
     uint32_t size;
+    uint32_t flags;
     em_operand_type_t type;
     union {
         struct operand_mem_t {

@@ -40,6 +40,12 @@
 #define INSN_NOTIMPL ((uint64_t)1 << 32)
 #define INSN_FASTOP  ((uint64_t)1 << 33)
 
+/* Operand flags */
+#define OP_READ_PENDING        (1 <<  0)
+#define OP_READ_FINISHED       (1 <<  1)
+#define OP_WRITE_PENDING       (1 <<  2)
+#define OP_WRITE_FINISHED      (1 <<  3)
+
 /* Prefixes */
 #define PREFIX_LOCK   0xF0
 #define PREFIX_REPNE  0xF2
@@ -67,6 +73,7 @@
 DECL_DECODER(op_none);
 DECL_DECODER(op_modrm_reg);
 DECL_DECODER(op_modrm_rm);
+DECL_DECODER(op_moffs);
 DECL_DECODER(op_imm);
 DECL_DECODER(op_simm8);
 DECL_DECODER(op_acc);
@@ -172,9 +179,9 @@ static const struct em_opcode_t opcode_table[256] = {
     /* 0x90 - 0x9F */
     X16(N),
     /* 0xA0 - 0xAF */
-    I2_BV(em_mov, op_acc, op_modrm_rm, op_none, INSN_MODRM | INSN_MOV),
-    I2_BV(em_mov, op_modrm_rm, op_acc, op_none, INSN_MODRM | INSN_MOV),
-    I2_BV(em_mov, op_di, op_si, op_none, INSN_MODRM | INSN_MOV), /* movs{b,w,d,q} */
+    I2_BV(em_mov, op_acc, op_moffs, op_none, INSN_MOV),
+    I2_BV(em_mov, op_moffs, op_acc, op_none, INSN_MOV),
+    I2_BV(em_mov, op_di, op_si, op_none, INSN_MOV), /* movs{b,w,d,q} */
     X2(N),
     X2(N),
     I2_BV(em_mov, op_acc, op_di, op_none, INSN_MODRM | INSN_MOV), /* stos{b,w,d,q} */
@@ -279,35 +286,75 @@ static em_status_t segmented_write(struct em_context_t *ctxt,
 static em_status_t operand_read(struct em_context_t *ctxt,
                                 struct em_operand_t *op)
 {
+    em_status_t rc;
+    if (op->flags & OP_READ_FINISHED) {
+        return EM_CONTINUE;
+    }
+
     switch (op->type) {
     case OP_NONE:
     case OP_IMM:
-        return EM_CONTINUE;
+        rc = EM_CONTINUE;
+        break;
     case OP_REG:
         op->value = READ_GPR(op->reg.index, op->size);
-        return EM_CONTINUE;
+        rc = EM_CONTINUE;
+        break;
     case OP_MEM:
-        return segmented_read(ctxt, &op->mem, &op->value, op->size);
+        if (op->flags & OP_READ_PENDING) {
+            rc = ctxt->ops->read_memory_post(ctxt->vcpu, &op->value, op->size);
+        } else {
+            rc = segmented_read(ctxt, &op->mem, &op->value, op->size);
+        }
+        break;
     default:
-        return EM_ERROR;
+        rc = EM_ERROR;
+        break;
     }
+
+    if (rc == EM_CONTINUE) {
+        op->flags |= OP_READ_FINISHED;
+    } else {
+        op->flags |= OP_READ_PENDING;
+    }
+    return rc;
 }
 
 static em_status_t operand_write(struct em_context_t *ctxt,
                                  struct em_operand_t *op)
 {
+    em_status_t rc;
+    if (op->flags & OP_WRITE_FINISHED) {
+        return EM_CONTINUE;
+    }
+
     switch (op->type) {
     case OP_NONE:
     case OP_IMM:
-        return EM_CONTINUE;
+        rc = EM_CONTINUE;
+        break;
     case OP_REG:
         WRITE_GPR(op->reg.index, op->value, op->size);
-        return EM_CONTINUE;
+        rc = EM_CONTINUE;
+        break;
     case OP_MEM:
-        return segmented_write(ctxt, &op->mem, &op->value, op->size);
+        if (op->flags & OP_WRITE_PENDING) {
+            rc = EM_CONTINUE;
+        } else {
+            rc = segmented_write(ctxt, &op->mem, &op->value, op->size);
+        }
+        break;
     default:
-        return EM_ERROR;
+        rc = EM_ERROR;
+        break;
     }
+
+    if (rc == EM_CONTINUE) {
+        op->flags |= OP_WRITE_FINISHED;
+    } else {
+        op->flags |= OP_WRITE_PENDING;
+    }
+    return rc;
 }
 
 static void register_add(struct em_context_t *ctxt,
@@ -466,6 +513,26 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
     }
 }
 
+static void decode_op_moffs(em_context_t *ctxt,
+                            em_operand_t *op)
+{
+    op->type = OP_MEM;
+    op->size = ctxt->operand_size;
+    op->mem.ea = 0;
+    op->mem.seg = SEG_DS;
+    switch (op->size) {
+    case 1:
+        op->mem.ea = insn_fetch_u8(ctxt);
+        break;
+    case 2:
+        op->mem.ea = insn_fetch_u16(ctxt);
+        break;
+    case 4:
+        op->mem.ea = insn_fetch_u32(ctxt);
+        break;
+    }
+}
+
 static void decode_op_imm(em_context_t *ctxt,
                           em_operand_t *op)
 {
@@ -559,6 +626,7 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     case EM_MODE_PROT16:
         ctxt->operand_size = 2;
         ctxt->address_size = 2;
+        break;
     case EM_MODE_PROT32:
         ctxt->operand_size = 4;
         ctxt->address_size = 4;
@@ -643,16 +711,19 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
 
     /* Decoding operands */
     if (opcode->decode_dst) {
+        ctxt->dst.flags = 0;
         opcode->decode_dst(ctxt, &ctxt->dst);
     }
     if (opcode->decode_src1) {
+        ctxt->src1.flags = 0;
         opcode->decode_src1(ctxt, &ctxt->src1);
     }
     if (opcode->decode_src2) {
+        ctxt->src2.flags = 0;
         opcode->decode_src2(ctxt, &ctxt->src2);
     }
 
-    return 0;
+    return EM_CONTINUE;
 }
 
 em_status_t em_emulate_insn(struct em_context_t *ctxt)
@@ -664,12 +735,13 @@ em_status_t em_emulate_insn(struct em_context_t *ctxt)
     em_status_t rc;
     ctxt->finished = false;
 
+restart:
     // TODO: Permissions, exceptions, etc.
     if (opcode->flags & (INSN_REP)) {
         if (ctxt->rep) {
             if (READ_GPR(REG_RCX, 8) == 0) {
                 rc = EM_CONTINUE;
-                ctxt->ops->write_rip(ctxt->vcpu, ctxt->rip + ctxt->len);
+                ctxt->ops->advance_rip(ctxt->vcpu, ctxt->len);
                 goto done;
             }
         }
@@ -722,14 +794,13 @@ em_status_t em_emulate_insn(struct em_context_t *ctxt)
         register_add(ctxt, REG_RCX, -1);
         if ((ctxt->rep == PREFIX_REPNE && (ctxt->eflags & RFLAGS_ZF)) ||
             (ctxt->rep == PREFIX_REPE && !(ctxt->eflags & RFLAGS_ZF))) {
-            rc = EM_EXIT_RESTART;
-            goto done;
+            goto restart;
         }
     }
 
     rc = EM_CONTINUE;
     ctxt->finished = true;
-    ctxt->ops->write_rip(ctxt->vcpu, ctxt->rip + ctxt->len);
+    ctxt->ops->advance_rip(ctxt->vcpu, ctxt->len);
 
 done:
     return rc;
