@@ -1919,7 +1919,7 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
 {
     em_status_t rc;
     em_mode_t mode;
-    em_context_t *em_ctx = &vcpu->emulate_ctxt;
+    em_context_t *em_ctxt = &vcpu->emulate_ctxt;
     uint8 instr[INSTR_MAX_LEN] = {0};
     uint64 cs_base = vcpu->state->_cs.base;
     uint64 rip = vcpu->state->_rip;
@@ -1934,7 +1934,7 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
         mode = EM_MODE_PROT32;
     else if (vcpu->state->_cs.operand_size == 0)
         mode = EM_MODE_PROT16;
-    em_ctx->mode = mode;
+    em_ctxt->mode = mode;
 
     // Fetch the instruction at guest CS:IP = CS.Base + IP, omitting segment
     // limit and privilege checks
@@ -1957,14 +1957,16 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
     }
 #endif  // CONFIG_HAX_EPT2
 
-    rc = em_decode_insn(em_ctx, instr);
+    em_ctxt->rip = rip;
+    em_ctxt->eflags = vcpu->state->_rflags;
+    rc = em_decode_insn(em_ctxt, instr);
     if (rc != EM_CONTINUE) {
         hax_panic_vcpu(vcpu, "%s: em_decode_insn() failed: vcpu_id=%u",
                        __func__, vcpu->vcpu_id);
         return HAX_RESUME;
     }
 
-    rc = em_emulate_insn(em_ctx);
+    rc = em_emulate_insn(em_ctxt);
     if (rc == EM_ERROR) {
         hax_panic_vcpu(vcpu, "%s: em_emulate_insn() failed: vcpu_id=%u",
                        __func__, vcpu->vcpu_id);
@@ -1991,6 +1993,33 @@ static void vcpu_write_gpr(void *obj, uint32_t reg_index, uint64_t value, uint32
         return;
     }
     vcpu->state->_regs[reg_index] = value;
+}
+
+static uint64_t vcpu_get_segment_base(void *obj, uint32_t segment)
+{
+    struct vcpu_t *vcpu = obj;
+    switch (segment) {
+    case SEG_CS:
+        return vcpu->state->_cs.base;
+    case SEG_DS:
+        return vcpu->state->_ds.base;
+    case SEG_ES:
+        return vcpu->state->_es.base;
+    case SEG_FS:
+        return vcpu->state->_fs.base;
+    case SEG_GS:
+        return vcpu->state->_gs.base;
+    case SEG_SS:
+        return vcpu->state->_ss.base;
+    default:
+        return vcpu->state->_ds.base;
+    }
+}
+
+static void vcpu_write_rip(void *obj, uint64_t value)
+{
+    struct vcpu_t *vcpu = obj;
+    vcpu->state->_rip = value;
 }
 
 static em_status_t vcpu_read_memory(void *obj, uint64_t ea,
@@ -2045,6 +2074,8 @@ static em_status_t vcpu_write_memory(void *obj, uint64_t ea,
 static const struct em_vcpu_ops_t em_ops = {
     .read_gpr = vcpu_read_gpr,
     .write_gpr = vcpu_write_gpr,
+    .get_segment_base = vcpu_get_segment_base,
+    .write_rip = vcpu_write_rip,
     .read_memory = vcpu_write_memory,
     .write_memory = vcpu_write_memory,
 };

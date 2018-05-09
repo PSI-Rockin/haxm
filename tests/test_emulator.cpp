@@ -65,6 +65,16 @@ void test_write_gpr(void* obj, uint32_t reg_index,
     memcpy(&vcpu->gpr[reg_index], &value, size);
 }
 
+static uint64_t vcpu_get_segment_base(void* obj, uint32_t segment) {
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    return 0ULL;
+}
+
+void test_write_rip(void* obj, uint64_t value) {
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    vcpu->rip = value;
+}
+
 em_status_t test_read_memory(void* obj, uint64_t ea,
                              uint64_t* value, uint32_t size) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
@@ -135,6 +145,7 @@ protected:
         // Initialize emulator
         em_ops.read_gpr = test_read_gpr;
         em_ops.write_gpr = test_write_gpr;
+        em_ops.write_rip = test_write_rip;
         em_ops.read_memory = test_read_memory;
         em_ops.write_memory = test_write_memory;
         em_ctxt.ops = &em_ops;
@@ -153,12 +164,15 @@ protected:
         vcpu = initial_state;
         err = ks_asm(ks, insn, 0, &code, &size, &count);
         ASSERT_FALSE(err);
+        em_ctxt.rip = 0;
         em_ctxt.eflags = static_cast<uint32_t>(vcpu.flags);
         err = em_decode_insn(&em_ctxt, code);
         ASSERT_TRUE(err != EM_ERROR);
         err = em_emulate_insn(&em_ctxt);
         ASSERT_TRUE(err != EM_ERROR);
+        EXPECT_TRUE(vcpu.rip == size);
         vcpu.flags = em_ctxt.eflags;
+        vcpu.rip = 0;
         EXPECT_FALSE(memcmp(&vcpu, &expected_state, sizeof(test_cpu_t)));
         ks_free(code);
     }
@@ -215,7 +229,7 @@ protected:
         case 32:  return "dword";
         case 64:  return "qword";
         default:
-            break;
+            return "";
         }
     }
 

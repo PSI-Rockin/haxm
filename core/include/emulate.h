@@ -40,9 +40,10 @@
 #include "emulate_ops.h"
 
 typedef enum {
-    EM_CONTINUE    =  0,  /* Emulation completed successfully */
-    EM_EXIT_MMIO   =  1,  /* Emulation requires external MMIO handling */
-    EM_ERROR       = -1,  /* Emulation failed */
+    EM_CONTINUE      =  0,  /* Emulation completed successfully */
+    EM_EXIT_MMIO     =  1,  /* Emulation requires external MMIO handling */
+    EM_EXIT_RESTART  =  2,  /* Emulation requires instruction restart (e.g. REPE/REPNE) */
+    EM_ERROR         = -1,  /* Emulation failed */
 } em_status_t;
 
 typedef enum {
@@ -81,11 +82,20 @@ typedef struct em_operand_t em_operand_t;
 #define REG_R14   14
 #define REG_R15   15
 
+#define SEG_NONE  0
+#define SEG_CS    1
+#define SEG_SS    2
+#define SEG_DS    3
+#define SEG_ES    4
+#define SEG_FS    5
+#define SEG_GS    6
+
 #define RFLAGS_CF  (1 <<  0)
 #define RFLAGS_PF  (1 <<  2)
 #define RFLAGS_AF  (1 <<  4)
 #define RFLAGS_ZF  (1 <<  6)
 #define RFLAGS_SF  (1 <<  7)
+#define RFLAGS_DF  (1 << 10)
 #define RFLAGS_OF  (1 << 11)
 
 #define RFLAGS_MASK_OSZAPC \
@@ -96,6 +106,8 @@ typedef struct em_vcpu_ops_t {
                          uint32_t size);
     void (*write_gpr)(void *vcpu, uint32_t reg_index,
                       uint64_t value, uint32_t size);
+    uint64_t (*get_segment_base)(void *vcpu, uint32_t segment);
+    void (*write_rip)(void *vcpu, uint64_t value);
     em_status_t (*read_memory)(void *vcpu, uint64_t ea,
                                uint64_t *value, uint32_t size);
     em_status_t (*write_memory)(void *vcpu, uint64_t ea,
@@ -123,7 +135,7 @@ typedef struct em_operand_t {
     union {
         struct operand_mem_t {
             uint64_t ea;
-            uint32_t segment;
+            uint32_t seg;
         } mem;
         struct operand_reg_t {
             uint32_t index;
@@ -142,6 +154,10 @@ typedef struct em_context_t {
     uint32_t address_size;
     uint8_t *insn;
     uint32_t len;
+    uint64_t rip;
+
+    int rep;
+    int lock;
     int override_segment;
     int override_operand_size;
     int override_address_size;

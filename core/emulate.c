@@ -35,19 +35,15 @@
 #define INSN_MODRM   ((uint64_t)1 <<  1)
 #define INSN_BYTEOP  ((uint64_t)1 <<  2)
 #define INSN_GROUP   ((uint64_t)1 <<  3)
+#define INSN_REP     ((uint64_t)1 <<  4)
 /* Implementation flags */
 #define INSN_NOTIMPL ((uint64_t)1 << 32)
 #define INSN_FASTOP  ((uint64_t)1 << 33)
 
-#define PF_SEG_OVERRIDE_NONE        0
-// Each of the following denotes the presence of a segment override prefix
-//   http://wiki.osdev.org/X86-64_Instruction_Encoding
-#define PF_SEG_OVERRIDE_CS          1  // 0x2e
-#define PF_SEG_OVERRIDE_SS          2  // 0x36
-#define PF_SEG_OVERRIDE_DS          3  // 0x3e
-#define PF_SEG_OVERRIDE_ES          4  // 0x26
-#define PF_SEG_OVERRIDE_FS          5  // 0x64
-#define PF_SEG_OVERRIDE_GS          6  // 0x65
+/* Prefixes */
+#define PREFIX_LOCK   0xF0
+#define PREFIX_REPNE  0xF2
+#define PREFIX_REPE   0xF3
 
 #define  X1(...)  __VA_ARGS__
 #define  X2(...)  X1(__VA_ARGS__), X1(__VA_ARGS__)
@@ -233,18 +229,51 @@ static const struct em_opcode_t opcode_table_0F3A[256] = {
 };
 
 /* Emulate accesses to guest memory */
+static uint64_t get_canonical_address(struct em_context_t *ctxt,
+                                      uint64_t addr, uint32_t vaddr_bits)
+{
+    return ((int64)addr << (64 - vaddr_bits)) >> (64 - vaddr_bits);
+}
+
+static em_status_t get_linear_address(struct em_context_t *ctxt,
+                                      struct operand_mem_t *mem,
+                                      uint64_t *la)
+{
+    if (ctxt->mode == EM_MODE_PROT64) {
+        *la = get_canonical_address(ctxt, mem->ea, 48);
+    }
+    else {
+        *la = ctxt->ops->get_segment_base(ctxt->vcpu, mem->seg) + mem->ea;
+    }
+    return EM_CONTINUE;
+}
+
 static em_status_t segmented_read(struct em_context_t *ctxt,
                                   struct operand_mem_t *mem,
                                   void *data, unsigned size)
 {
-    return ctxt->ops->read_memory(ctxt->vcpu, mem->ea, data, size);
+    uint64_t la;
+    em_status_t rc;
+
+    rc = get_linear_address(ctxt, mem, &la);
+    if (rc != EM_CONTINUE) {
+        return rc;
+    }
+    return ctxt->ops->read_memory(ctxt->vcpu, la, data, size);
 }
 
 static em_status_t segmented_write(struct em_context_t *ctxt,
                                    struct operand_mem_t *mem,
                                    void *data, unsigned size)
 {
-    return ctxt->ops->write_memory(ctxt->vcpu, mem->ea, data, size);
+    uint64_t la;
+    em_status_t rc;
+
+    rc = get_linear_address(ctxt, mem, &la);
+    if (rc != EM_CONTINUE) {
+        return rc;
+    }
+    return ctxt->ops->write_memory(ctxt->vcpu, la, data, size);
 }
 
 static em_status_t operand_read(struct em_context_t *ctxt,
@@ -255,7 +284,7 @@ static em_status_t operand_read(struct em_context_t *ctxt,
     case OP_IMM:
         return EM_CONTINUE;
     case OP_REG:
-        READ_GPR(op->reg.index, op->size);
+        op->value = READ_GPR(op->reg.index, op->size);
         return EM_CONTINUE;
     case OP_MEM:
         return segmented_read(ctxt, &op->mem, &op->value, op->size);
@@ -279,6 +308,12 @@ static em_status_t operand_write(struct em_context_t *ctxt,
     default:
         return EM_ERROR;
     }
+}
+
+static void register_add(struct em_context_t *ctxt,
+                         int reg_index, uint64_t value)
+{
+    WRITE_GPR(reg_index, READ_GPR(reg_index, 8) + value, 8);
 }
 
 static uint8_t insn_fetch_u8(struct em_context_t *ctxt)
@@ -318,33 +353,32 @@ static void decode_prefixes(struct em_context_t *ctxt)
         b = insn_fetch_u8(ctxt);
         switch (b) {
         /* Group 1: Lock and repeat prefixes */
-        case 0xF0: // LOCK
+        case PREFIX_LOCK:
             // Ignored (is it possible to emulate atomic operations?)
+            ctxt->lock = b;
             break;
-        case 0xF2: // REPNE/REPNZ
-            // Unimplemented
-            break;
-        case 0xF3: // REP + REPE/REPZ
-            // Unimplemented
+        case PREFIX_REPNE:
+        case PREFIX_REPE:
+            ctxt->rep = b;
             break;
         /* Group 2: Segment override prefixes */
         case 0x2E:
-            ctxt->override_segment = PF_SEG_OVERRIDE_CS;
+            ctxt->override_segment = SEG_CS;
             break;
         case 0x36:
-            ctxt->override_segment = PF_SEG_OVERRIDE_SS;
+            ctxt->override_segment = SEG_SS;
             break;
         case 0x3E:
-            ctxt->override_segment = PF_SEG_OVERRIDE_DS;
+            ctxt->override_segment = SEG_DS;
             break;
         case 0x26:
-            ctxt->override_segment = PF_SEG_OVERRIDE_ES;
+            ctxt->override_segment = SEG_ES;
             break;
         case 0x64:
-            ctxt->override_segment = PF_SEG_OVERRIDE_FS;
+            ctxt->override_segment = SEG_FS;
             break;
         case 0x65:
-            ctxt->override_segment = PF_SEG_OVERRIDE_GS;
+            ctxt->override_segment = SEG_GS;
             break;
         /* Group 3: Operand-size override prefix */
         case 0x66:
@@ -395,9 +429,15 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
     op->type = OP_MEM;
     op->size = ctxt->operand_size;
     op->mem.ea = 0;
+    op->mem.seg = SEG_DS;
+    if (ctxt->override_segment) {
+        op->mem.seg = ctxt->override_segment;
+    }
+
     if (ctxt->address_size == 2) {
         /* Intel SDM Vol. 2A:
          * Table 2-1. 16-Bit Addressing Forms with the ModR/M Byte */
+        // TODO
     }
     if (ctxt->address_size == 4 || ctxt->address_size == 8) {
         /* Intel SDM Vol. 2A:
@@ -469,6 +509,7 @@ static void decode_op_di(em_context_t *ctxt,
     op->type = OP_MEM;
     op->size = ctxt->operand_size;
     op->mem.ea = READ_GPR(REG_RDI, ctxt->address_size);
+    op->mem.seg = SEG_ES;
 }
 
 static void decode_op_si(em_context_t *ctxt,
@@ -477,6 +518,10 @@ static void decode_op_si(em_context_t *ctxt,
     op->type = OP_MEM;
     op->size = ctxt->operand_size;
     op->mem.ea = READ_GPR(REG_RSI, ctxt->address_size);
+    op->mem.seg = SEG_DS;
+    if (ctxt->override_segment) {
+        op->mem.seg = ctxt->override_segment;
+    }
 }
 
 /* Soft-emulation */
@@ -525,11 +570,13 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     default:
         return EM_ERROR;
     }
-    ctxt->override_segment = PF_SEG_OVERRIDE_NONE;
+    ctxt->override_segment = SEG_NONE;
     ctxt->override_operand_size = 0;
     ctxt->override_address_size = 0;
     ctxt->insn = insn;
-    ctxt->len = 0;
+    ctxt->lock = 0;
+    ctxt->rep = 0;
+    ctxt->len = 0;   
     decode_prefixes(ctxt);
 
     /* Apply legacy prefixes */
@@ -618,6 +665,15 @@ em_status_t em_emulate_insn(struct em_context_t *ctxt)
     ctxt->finished = false;
 
     // TODO: Permissions, exceptions, etc.
+    if (opcode->flags & (INSN_REP)) {
+        if (ctxt->rep) {
+            if (READ_GPR(REG_RCX, 8) == 0) {
+                rc = EM_CONTINUE;
+                ctxt->ops->write_rip(ctxt->vcpu, ctxt->rip + ctxt->len);
+                goto done;
+            }
+        }
+    }
 
     // Input operands
     if (!(opcode->flags & INSN_MOV)) {
@@ -654,8 +710,27 @@ em_status_t em_emulate_insn(struct em_context_t *ctxt)
     if (rc != EM_CONTINUE)
         goto done;
 
+    if (opcode->decode_dst == decode_op_di) {
+        register_add(ctxt, REG_RDI, ctxt->operand_size *
+            (ctxt->eflags & RFLAGS_DF) ? -1 : +1);
+    }
+    if (opcode->decode_src1 == decode_op_si) {
+        register_add(ctxt, REG_RSI, ctxt->operand_size *
+            (ctxt->eflags & RFLAGS_DF) ? -1 : +1);
+    }
+    if (ctxt->rep) {
+        register_add(ctxt, REG_RCX, -1);
+        if ((ctxt->rep == PREFIX_REPNE && (ctxt->eflags & RFLAGS_ZF)) ||
+            (ctxt->rep == PREFIX_REPE && !(ctxt->eflags & RFLAGS_ZF))) {
+            rc = EM_EXIT_RESTART;
+            goto done;
+        }
+    }
+
     rc = EM_CONTINUE;
     ctxt->finished = true;
+    ctxt->ops->write_rip(ctxt->vcpu, ctxt->rip + ctxt->len);
+
 done:
     return rc;
 }
