@@ -65,6 +65,16 @@ void test_write_gpr(void* obj, uint32_t reg_index,
     memcpy(&vcpu->gpr[reg_index], &value, size);
 }
 
+uint64_t test_read_rflags(void* obj) {
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    return vcpu->flags;
+}
+
+void test_write_rflags(void* obj, uint64_t value) {
+    test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
+    vcpu->flags = value;
+}
+
 static uint64_t test_get_segment_base(void* obj, uint32_t segment) {
     test_cpu_t* vcpu = reinterpret_cast<test_cpu_t*>(obj);
     return 0ULL;
@@ -145,6 +155,8 @@ protected:
         // Initialize emulator
         em_ops.read_gpr = test_read_gpr;
         em_ops.write_gpr = test_write_gpr;
+        em_ops.read_rflags = test_read_rflags;
+        em_ops.write_rflags = test_write_rflags;
         em_ops.get_segment_base = test_get_segment_base;
         em_ops.advance_rip = test_advance_rip;
         em_ops.read_memory = test_read_memory;
@@ -166,13 +178,11 @@ protected:
         err = ks_asm(ks, insn, 0, &code, &size, &count);
         ASSERT_FALSE(err);
         em_ctxt.rip = 0;
-        em_ctxt.eflags = static_cast<uint32_t>(vcpu.flags);
         err = em_decode_insn(&em_ctxt, code);
         ASSERT_TRUE(err != EM_ERROR);
         err = em_emulate_insn(&em_ctxt);
         ASSERT_TRUE(err != EM_ERROR);
         EXPECT_TRUE(vcpu.rip == size);
-        vcpu.flags = em_ctxt.eflags;
         vcpu.rip = 0;
         EXPECT_FALSE(memcmp(&vcpu, &expected_state, sizeof(test_cpu_t)));
         ks_free(code);

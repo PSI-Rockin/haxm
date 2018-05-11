@@ -191,9 +191,37 @@ fastop3d andn
 ; Instruction dispatching
 global fastop_dispatch
 %ifidn __CONV__, x32_cdecl
+    ; Arguments:
+    ;   handler  - stack0  (accessed directly)
+    ;   dst      - stack1  (saved to non-volatile ebx)
+    ;   src1     - stack2  (saved to non-volatile esi)
+    ;   src2     - stack3  (saved to non-volatile edi)
+    ;   flags    - stack4  (saved to non-volatile ebp)
+%define stack_arg(index) [esp + 4*04h + 04h + (index*04h)]
 fastop_dispatch:
-    ; TODO: Unimplemented
+    push ebx
+    push esi
+    push edi
+    push ebp
+    mov ebx, stack_arg(1)
+    mov esi, stack_arg(2)
+    mov edi, stack_arg(3)
+    mov ebp, stack_arg(4)
+    mov reg_dst, [ebx]
+    mov reg_src1, [esi]
+    mov reg_src2, [edi]
+    push qword [ebp]
+    popf
+    call stack_arg(0)
+    pushf
+    pop qword [ebp]
+    mov [ebx], reg_dst
+    pop ebp
+    pop edi
+    pop esi
+    pop ebx
     ret
+%undef stack_arg
 
 %elifidn __CONV__, x64_systemv
     ; Arguments:
@@ -202,6 +230,7 @@ fastop_dispatch:
     ;   src1     - rdx    (saved to volatile r10)
     ;   src2     - rcx    (saved to volatile r11)
     ;   flags    - r8     (accessed directly)
+%define stack_arg(index) [rsp + 0*08h + 08h + (index*08h)]
 fastop_dispatch:
     mov r10, rdx
     mov r11, rcx
@@ -215,19 +244,21 @@ fastop_dispatch:
     pop qword [r8]
     mov [rsi], reg_dst
     ret
+%undef stack_arg
 
 %elifidn __CONV__, x64_microsoft
     ; Arguments:
-    ;   handler  - rcx    (saved to volatile r10)
-    ;   dst      - rdx    (saved to volatile r11)
-    ;   src1     - r8     (accessed directly)
-    ;   src2     - r9     (accessed directly)
-    ;   flags    - stack  (saved to non-volatile r12)
+    ;   handler  - rcx     (saved to volatile r10)
+    ;   dst      - rdx     (saved to volatile r11)
+    ;   src1     - r8      (accessed directly)
+    ;   src2     - r9      (accessed directly)
+    ;   flags    - stack4  (saved to non-volatile r12)
+%define stack_arg(index) [rsp + 1*08h + 08h + (index*08h)]
 fastop_dispatch:
     push r12
     mov r10, rcx
     mov r11, rdx
-    mov r12, [rsp+30h]
+    mov r12, stack_arg(4)
     mov reg_dst, [r11]
     mov reg_src1, [r8]
     mov reg_src2, [r9]
@@ -239,4 +270,6 @@ fastop_dispatch:
     mov [r11], reg_dst
     pop r12
     ret
+%undef stack_arg
+
 %endif

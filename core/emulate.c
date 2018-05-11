@@ -31,11 +31,12 @@
 #include "include/emulate.h"
 
 /* Instruction flags */
-#define INSN_MOV     ((uint64_t)1 <<  0)
-#define INSN_MODRM   ((uint64_t)1 <<  1)
-#define INSN_BYTEOP  ((uint64_t)1 <<  2)
-#define INSN_GROUP   ((uint64_t)1 <<  3)
-#define INSN_REP     ((uint64_t)1 <<  4)
+#define INSN_MOV     ((uint64_t)1 <<  0) /* Instruction ignores destination original value */
+#define INSN_MODRM   ((uint64_t)1 <<  1) /* Instruction expects ModRM byte */
+#define INSN_BYTEOP  ((uint64_t)1 <<  2) /* Instruction accesses 1-byte registers */
+#define INSN_GROUP   ((uint64_t)1 <<  3) /* Instruction opcode is extended via ModRM byte */
+#define INSN_REP     ((uint64_t)1 <<  4) /* Instruction supports REP prefixes */
+#define INSN_NOFLAGS ((uint64_t)1 <<  5) /* Instruction ignores flags */
 /* Implementation flags */
 #define INSN_NOTIMPL ((uint64_t)1 << 32)
 #define INSN_FASTOP  ((uint64_t)1 << 33)
@@ -66,6 +67,11 @@
     ctxt->ops->read_gpr(ctxt->vcpu, idx, size)
 #define WRITE_GPR(idx, value, size) \
     ctxt->ops->write_gpr(ctxt->vcpu, idx, value, size)
+
+#define BX (uint16_t)(ctxt->ops->read_gpr(ctxt->vcpu, REG_RBX, 2))
+#define BP (uint16_t)(ctxt->ops->read_gpr(ctxt->vcpu, REG_RBP, 2))
+#define SI (uint16_t)(ctxt->ops->read_gpr(ctxt->vcpu, REG_RSI, 2))
+#define DI (uint16_t)(ctxt->ops->read_gpr(ctxt->vcpu, REG_RDI, 2))
 
 /* Operand decoders */
 #define DECL_DECODER(name) \
@@ -111,7 +117,7 @@ DECL_DECODER(op_si);
 #define F2_BV(_handler, _dec_dst, _dec_src1, _dec_src2, _flags) \
     F(_handler, _dec_dst, _dec_src1, _dec_src2, (_flags | INSN_BYTEOP)), \
     F(_handler, _dec_dst, _dec_src1, _dec_src2, (_flags))
-    
+
 #define F6_ALU(_handler, _flags) \
     F2_BV(_handler, op_modrm_rm, op_modrm_reg, op_none, (_flags | INSN_MODRM)), \
     F2_BV(_handler, op_modrm_reg, op_modrm_rm, op_none, (_flags | INSN_MODRM)), \
@@ -181,13 +187,13 @@ static const struct em_opcode_t opcode_table[256] = {
     /* 0xA0 - 0xAF */
     I2_BV(em_mov, op_acc, op_moffs, op_none, INSN_MOV),
     I2_BV(em_mov, op_moffs, op_acc, op_none, INSN_MOV),
-    I2_BV(em_mov, op_di, op_si, op_none, INSN_MOV), /* movs{b,w,d,q} */
+    I2_BV(em_mov, op_di, op_si, op_none, INSN_MOV | INSN_REP), /* movs{b,w,d,q} */
     X2(N),
     X2(N),
-    I2_BV(em_mov, op_acc, op_di, op_none, INSN_MODRM | INSN_MOV), /* stos{b,w,d,q} */
-    I2_BV(em_mov, op_si, op_acc, op_none, INSN_MODRM | INSN_MOV), /* lods{b,w,d,q} */
+    I2_BV(em_mov, op_acc, op_di, op_none, INSN_MODRM | INSN_MOV | INSN_REP), /* stos{b,w,d,q} */
+    I2_BV(em_mov, op_si, op_acc, op_none, INSN_MODRM | INSN_MOV | INSN_REP), /* lods{b,w,d,q} */
     X2(N),
-    /* 0xB0 - 0xFF */
+    /* 0xB0 - 0xBF */
     X16(N),
     /* 0xC0 - 0xCF */
     X4(N),
@@ -237,7 +243,7 @@ static const struct em_opcode_t opcode_table_0F3A[256] = {
 
 /* Emulate accesses to guest memory */
 static uint64_t get_canonical_address(struct em_context_t *ctxt,
-                                      uint64_t addr, uint32_t vaddr_bits)
+                                      uint64_t addr, uint vaddr_bits)
 {
     return ((int64)addr << (64 - vaddr_bits)) >> (64 - vaddr_bits);
 }
@@ -248,8 +254,7 @@ static em_status_t get_linear_address(struct em_context_t *ctxt,
 {
     if (ctxt->mode == EM_MODE_PROT64) {
         *la = get_canonical_address(ctxt, mem->ea, 48);
-    }
-    else {
+    } else {
         *la = ctxt->ops->get_segment_base(ctxt->vcpu, mem->seg) + mem->ea;
     }
     return EM_CONTINUE;
@@ -484,7 +489,44 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
     if (ctxt->address_size == 2) {
         /* Intel SDM Vol. 2A:
          * Table 2-1. 16-Bit Addressing Forms with the ModR/M Byte */
-        // TODO
+        switch (ctxt->modrm.rm) {
+        case 0:
+            op->mem.ea = BX + SI;
+            break;
+        case 1:
+            op->mem.ea = BX + DI;
+            break;
+        case 2:
+            op->mem.ea = BP + SI;
+            break;
+        case 3:
+            op->mem.ea = BP + DI;
+            break;
+        case 4:
+            op->mem.ea = SI;
+            break;
+        case 5:
+            op->mem.ea = DI;
+            break;
+        case 6:
+            if (ctxt->modrm.mod == 0) {
+                op->mem.ea = insn_fetch_u16(ctxt);
+            } else {
+                op->mem.ea = BP;
+            }
+            break;
+        case 7:
+            op->mem.ea = BX;
+            break;
+        }
+
+        // Displacement
+        if (ctxt->modrm.mod == 1) {
+            op->mem.ea += insn_fetch_u8(ctxt);
+        }
+        if (ctxt->modrm.mod == 2) {
+            op->mem.ea += insn_fetch_u16(ctxt);
+        }
     }
     if (ctxt->address_size == 4 || ctxt->address_size == 8) {
         /* Intel SDM Vol. 2A:
@@ -644,7 +686,7 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     ctxt->insn = insn;
     ctxt->lock = 0;
     ctxt->rep = 0;
-    ctxt->len = 0;   
+    ctxt->len = 0;
     decode_prefixes(ctxt);
 
     /* Apply legacy prefixes */
@@ -675,9 +717,11 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
         case 0x38:
             b = insn_fetch_u8(ctxt);
             *opcode = opcode_table_0F38[b];
+            break;
         case 0x3A:
             b = insn_fetch_u8(ctxt);
             *opcode = opcode_table_0F3A[b];
+            break;
 
         default:
             *opcode = opcode_table_0F[b];
@@ -697,6 +741,9 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     if (flags & INSN_GROUP) {
         opcode_group = &opcode->group[ctxt->modrm.opc];
         opcode->handler = opcode_group->handler;
+        if (!opcode_group->handler) {
+            return EM_ERROR;
+        }
         opcode->flags |= opcode_group->flags;
         if (opcode_group->decode_dst != decode_op_none) {
             opcode->decode_dst = opcode_group->decode_dst;
@@ -729,9 +776,6 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
 em_status_t em_emulate_insn(struct em_context_t *ctxt)
 {
     const struct em_opcode_t *opcode = &ctxt->opcode;
-    void(*fast_handler)();
-    void(*soft_handler)(em_context_t*);
-    uint64_t eflags;
     em_status_t rc;
     ctxt->finished = false;
 
@@ -748,6 +792,9 @@ restart:
     }
 
     // Input operands
+    if (!(opcode->flags & INSN_NOFLAGS)) {
+        ctxt->rflags = ctxt->ops->read_rflags(ctxt->vcpu);
+    }
     if (!(opcode->flags & INSN_MOV)) {
         rc = operand_read(ctxt, &ctxt->dst);
         if (rc != EM_CONTINUE)
@@ -762,7 +809,8 @@ restart:
 
     // Emulate instruction
     if (opcode->flags & INSN_FASTOP) {
-        eflags = ctxt->eflags & RFLAGS_MASK_OSZAPC;
+        void (*fast_handler)();
+        uint64_t eflags = ctxt->rflags & RFLAGS_MASK_OSZAPC;
         fast_handler = (em_handler_t *)((uintptr_t)opcode->handler
             + FASTOP_OFFSET(ctxt->dst.size));
         fastop_dispatch(fast_handler,
@@ -770,30 +818,34 @@ restart:
             &ctxt->src1.value,
             &ctxt->src2.value,
             &eflags);
-        ctxt->eflags &= ~RFLAGS_MASK_OSZAPC;
-        ctxt->eflags |= eflags & RFLAGS_MASK_OSZAPC;
+        ctxt->rflags &= ~RFLAGS_MASK_OSZAPC;
+        ctxt->rflags |= eflags & RFLAGS_MASK_OSZAPC;
     } else {
+        void (*soft_handler)(em_context_t*);
         soft_handler = opcode->handler;
         soft_handler(ctxt);
     }
-    
+
     // Output operands
+    if (!(opcode->flags & INSN_NOFLAGS)) {
+        ctxt->ops->write_rflags(ctxt->vcpu, ctxt->rflags);
+    }
     rc = operand_write(ctxt, &ctxt->dst);
     if (rc != EM_CONTINUE)
         goto done;
 
     if (opcode->decode_dst == decode_op_di) {
         register_add(ctxt, REG_RDI, ctxt->operand_size *
-            (ctxt->eflags & RFLAGS_DF) ? -1 : +1);
+            ((ctxt->rflags & RFLAGS_DF) ? -1 : +1));
     }
     if (opcode->decode_src1 == decode_op_si) {
         register_add(ctxt, REG_RSI, ctxt->operand_size *
-            (ctxt->eflags & RFLAGS_DF) ? -1 : +1);
+            ((ctxt->rflags & RFLAGS_DF) ? -1 : +1));
     }
-    if (ctxt->rep) {
+    if ((opcode->flags & INSN_REP) && ctxt->rep) {
         register_add(ctxt, REG_RCX, -1);
-        if ((ctxt->rep == PREFIX_REPNE && (ctxt->eflags & RFLAGS_ZF)) ||
-            (ctxt->rep == PREFIX_REPE && !(ctxt->eflags & RFLAGS_ZF))) {
+        if ((ctxt->rep == PREFIX_REPNE && (ctxt->rflags & RFLAGS_ZF)) ||
+            (ctxt->rep == PREFIX_REPE && !(ctxt->rflags & RFLAGS_ZF))) {
             goto restart;
         }
     }

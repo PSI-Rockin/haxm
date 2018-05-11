@@ -1958,7 +1958,6 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
 #endif  // CONFIG_HAX_EPT2
 
     em_ctxt->rip = rip;
-    em_ctxt->eflags = vcpu->state->_rflags;
     rc = em_decode_insn(em_ctxt, instr);
     if (rc < 0) {
         hax_panic_vcpu(vcpu, "%s: em_decode_insn() failed: vcpu_id=%u",
@@ -1999,6 +1998,18 @@ static void vcpu_write_gpr(void *obj, uint32_t reg_index, uint64_t value, uint32
         return;
     }
     vcpu->state->_regs[reg_index] = value;
+}
+
+uint64_t vcpu_read_rflags(void *obj)
+{
+    struct vcpu_t *vcpu = obj;
+    return vcpu->state->_rflags;
+}
+
+void vcpu_write_rflags(void *obj, uint64_t value)
+{
+    struct vcpu_t *vcpu = obj;
+    vcpu->state->_rflags = value;
 }
 
 static uint64_t vcpu_get_segment_base(void *obj, uint32_t segment)
@@ -2089,6 +2100,8 @@ static em_status_t vcpu_write_memory(void *obj, uint64_t ea,
 static const struct em_vcpu_ops_t em_ops = {
     .read_gpr = vcpu_read_gpr,
     .write_gpr = vcpu_write_gpr,
+    .read_rflags = vcpu_read_rflags,
+    .write_rflags = vcpu_write_rflags,
     .get_segment_base = vcpu_get_segment_base,
     .advance_rip = vcpu_advance_rip,
     .read_memory = vcpu_read_memory,
