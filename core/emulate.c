@@ -147,7 +147,7 @@ static const struct em_opcode_t opcode_group3[8] = {
 };
 
 static const struct em_opcode_t opcode_group11[8] = {
-    F(em_mov, op_none, op_none, op_none, 0),
+    I(em_mov, op_none, op_none, op_none, INSN_MOV),
 };
 
 static const struct em_opcode_t opcode_table[256] = {
@@ -447,6 +447,24 @@ static void decode_prefixes(struct em_context_t *ctxt)
     }
 }
 
+static void decode_operands(struct em_context_t *ctxt)
+{
+    const struct em_opcode_t *opcode = &ctxt->opcode;
+
+    if (opcode->decode_dst) {
+        ctxt->dst.flags = 0;
+        opcode->decode_dst(ctxt, &ctxt->dst);
+    }
+    if (opcode->decode_src1) {
+        ctxt->src1.flags = 0;
+        opcode->decode_src1(ctxt, &ctxt->src1);
+    }
+    if (opcode->decode_src2) {
+        ctxt->src2.flags = 0;
+        opcode->decode_src2(ctxt, &ctxt->src2);
+    }
+}
+
 static void decode_op_none(em_context_t *ctxt,
                            em_operand_t *op)
 {
@@ -636,7 +654,7 @@ static void decode_op_si(em_context_t *ctxt,
 /* Soft-emulation */
 static void em_mov(struct em_context_t *ctxt)
 {
-    memcpy(&ctxt->dst, &ctxt->src1, ctxt->operand_size);
+    memcpy(&ctxt->dst.value, &ctxt->src1.value, ctxt->operand_size);
 }
 
 static void em_movzx(struct em_context_t *ctxt)
@@ -665,6 +683,7 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
     const struct em_opcode_t *opcode_group;
 
     switch (ctxt->mode) {
+    case EM_MODE_REAL:
     case EM_MODE_PROT16:
         ctxt->operand_size = 2;
         ctxt->address_size = 2;
@@ -756,20 +775,7 @@ em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
         }
     }
 
-    /* Decoding operands */
-    if (opcode->decode_dst) {
-        ctxt->dst.flags = 0;
-        opcode->decode_dst(ctxt, &ctxt->dst);
-    }
-    if (opcode->decode_src1) {
-        ctxt->src1.flags = 0;
-        opcode->decode_src1(ctxt, &ctxt->src1);
-    }
-    if (opcode->decode_src2) {
-        ctxt->src2.flags = 0;
-        opcode->decode_src2(ctxt, &ctxt->src2);
-    }
-
+    decode_operands(ctxt);
     return EM_CONTINUE;
 }
 
@@ -781,13 +787,9 @@ em_status_t em_emulate_insn(struct em_context_t *ctxt)
 
 restart:
     // TODO: Permissions, exceptions, etc.
-    if (opcode->flags & (INSN_REP)) {
-        if (ctxt->rep) {
-            if (READ_GPR(REG_RCX, 8) == 0) {
-                rc = EM_CONTINUE;
-                ctxt->ops->advance_rip(ctxt->vcpu, ctxt->len);
-                goto done;
-            }
+    if ((opcode->flags & INSN_REP) && ctxt->rep) {
+        if (READ_GPR(REG_RCX, 8) == 0) {
+            goto done;
         }
     }
 
@@ -798,14 +800,14 @@ restart:
     if (!(opcode->flags & INSN_MOV)) {
         rc = operand_read(ctxt, &ctxt->dst);
         if (rc != EM_CONTINUE)
-            goto done;
+            goto exit;
     }
     rc = operand_read(ctxt, &ctxt->src1);
     if (rc != EM_CONTINUE)
-        goto done;
+        goto exit;
     rc = operand_read(ctxt, &ctxt->src2);
     if (rc != EM_CONTINUE)
-        goto done;
+        goto exit;
 
     // Emulate instruction
     if (opcode->flags & INSN_FASTOP) {
@@ -832,28 +834,30 @@ restart:
     }
     rc = operand_write(ctxt, &ctxt->dst);
     if (rc != EM_CONTINUE)
-        goto done;
+        goto exit;
 
     if (opcode->decode_dst == decode_op_di) {
         register_add(ctxt, REG_RDI, ctxt->operand_size *
-            ((ctxt->rflags & RFLAGS_DF) ? -1 : +1));
+            ((ctxt->rflags & RFLAGS_DF) ? -1LL : +1LL));
     }
     if (opcode->decode_src1 == decode_op_si) {
         register_add(ctxt, REG_RSI, ctxt->operand_size *
-            ((ctxt->rflags & RFLAGS_DF) ? -1 : +1));
+            ((ctxt->rflags & RFLAGS_DF) ? -1LL : +1LL));
     }
     if ((opcode->flags & INSN_REP) && ctxt->rep) {
-        register_add(ctxt, REG_RCX, -1);
+        register_add(ctxt, REG_RCX, -1LL);
         if ((ctxt->rep == PREFIX_REPNE && (ctxt->rflags & RFLAGS_ZF)) ||
             (ctxt->rep == PREFIX_REPE && !(ctxt->rflags & RFLAGS_ZF))) {
+            decode_operands(ctxt);
             goto restart;
         }
     }
 
+done:
     rc = EM_CONTINUE;
     ctxt->finished = true;
     ctxt->ops->advance_rip(ctxt->vcpu, ctxt->len);
 
-done:
+exit:
     return rc;
 }
