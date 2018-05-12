@@ -2137,7 +2137,6 @@ static int exit_exc_nmi(struct vcpu_t *vcpu, struct hax_tunnel *htun)
                 if (handle_vtlb(vcpu))
                     return HAX_RESUME;
 
-                vaddr_t cr2 = vmx(vcpu, exit_qualification).address;
                 return vcpu_emulate_insn(vcpu);
             } else {
                 hax_panic_vcpu(vcpu, "Page fault shouldn't happen when EPT is "

@@ -482,7 +482,6 @@ static void decode_op_modrm_reg(em_context_t *ctxt,
 static void decode_op_modrm_rm(em_context_t *ctxt,
                                em_operand_t *op)
 {
-    uint64_t disp;
     uint32_t reg_base;
     uint32_t reg_index;
     uint8_t scale;

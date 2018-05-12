@@ -60,8 +60,8 @@ typedef enum {
     OP_ACC,          /* Accumulator: AL, AX, EAX, RAX */
 } em_operand_type_t;
 
-typedef struct em_context_t em_context_t;
-typedef struct em_operand_t em_operand_t;
+struct em_context_t;
+struct em_operand_t;
 
 /* Interface */
 #define REG_RAX   0
@@ -117,8 +117,8 @@ typedef struct em_vcpu_ops_t {
                                 uint64_t *value, uint32_t size);
 } em_vcpu_ops_t;
 
-typedef void (em_operand_decoder_t)(em_context_t *ctxt,
-                                    em_operand_t *op);
+typedef void (em_operand_decoder_t)(struct em_context_t *ctxt,
+                                    struct em_operand_t *op);
 
 typedef struct em_opcode_t {
     union {
