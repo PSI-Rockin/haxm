@@ -167,14 +167,14 @@ protected:
     }
 
     void run(const char* insn,
-             const test_cpu_t& initial_state,
-             const test_cpu_t& expected_state) {
+             const test_cpu_t& vcpu_original,
+             const test_cpu_t& vcpu_expected) {
         uint8_t* code;
         size_t count;
         size_t size;
         int err;
 
-        vcpu = initial_state;
+        vcpu = vcpu_original;
         err = ks_asm(ks, insn, 0, &code, &size, &count);
         ASSERT_FALSE(err);
         em_ctxt.rip = 0;
@@ -184,7 +184,7 @@ protected:
         ASSERT_TRUE(err != EM_ERROR);
         EXPECT_TRUE(vcpu.rip == size);
         vcpu.rip = 0;
-        EXPECT_FALSE(memcmp(&vcpu, &expected_state, sizeof(test_cpu_t)));
+        EXPECT_FALSE(memcmp(&vcpu, &vcpu_expected, sizeof(test_cpu_t)));
         ks_free(code);
     }
 

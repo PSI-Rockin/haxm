@@ -557,9 +557,10 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
             scale = 1 << ctxt->sib.scale;
             op->mem.ea += READ_GPR(reg_base, ctxt->address_size);
             op->mem.ea += READ_GPR(reg_index, ctxt->address_size) * scale;
-        }
-        if (ctxt->modrm.mod == 0 && ctxt->modrm.rm == 5) {
+        } else if (ctxt->modrm.mod == 0 && ctxt->modrm.rm == 5) {
             op->mem.ea += insn_fetch_u32(ctxt);
+        } else {
+            op->mem.ea += ctxt->ops->read_gpr(ctxt->vcpu, ctxt->modrm.rm, 4);
         }
 
         // Displacement
@@ -674,7 +675,7 @@ static void em_xchg(struct em_context_t *ctxt)
     operand_write(ctxt, &ctxt->src2);
 }
 
-em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn)
+em_status_t em_decode_insn(struct em_context_t *ctxt, const uint8_t *insn)
 {
     uint8_t b;
     uint64_t flags;

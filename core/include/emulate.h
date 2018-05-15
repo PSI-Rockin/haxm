@@ -154,9 +154,9 @@ typedef struct em_context_t {
     bool finished;
 
     em_mode_t mode;
+    const uint8_t *insn;
     uint32_t operand_size;
     uint32_t address_size;
-    uint8_t *insn;
     uint32_t len;
     uint64_t rip;
 
@@ -206,7 +206,7 @@ typedef struct em_context_t {
     } sib;
 } em_context_t;
 
-em_status_t em_decode_insn(struct em_context_t *ctxt, uint8_t *insn);
+em_status_t em_decode_insn(struct em_context_t *ctxt, const uint8_t *insn);
 em_status_t em_emulate_insn(struct em_context_t *ctxt);
 
 #endif /* HAX_CORE_EMULATE_H_ */
