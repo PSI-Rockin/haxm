@@ -190,8 +190,8 @@ static const struct em_opcode_t opcode_table[256] = {
     I2_BV(em_mov, op_di, op_si, op_none, INSN_MOV | INSN_REP), /* movs{b,w,d,q} */
     X2(N),
     X2(N),
-    I2_BV(em_mov, op_acc, op_di, op_none, INSN_MODRM | INSN_MOV | INSN_REP), /* stos{b,w,d,q} */
-    I2_BV(em_mov, op_si, op_acc, op_none, INSN_MODRM | INSN_MOV | INSN_REP), /* lods{b,w,d,q} */
+    I2_BV(em_mov, op_di, op_acc, op_none, INSN_MOV | INSN_REP), /* stos{b,w,d,q} */
+    I2_BV(em_mov, op_acc, op_si, op_none, INSN_MOV | INSN_REP), /* lods{b,w,d,q} */
     X2(N),
     /* 0xB0 - 0xBF */
     X16(N),

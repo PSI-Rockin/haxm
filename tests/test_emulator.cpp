@@ -434,6 +434,21 @@ TEST_F(EmulatorTest, insn_or) {
     });
 }
 
+TEST_F(EmulatorTest, insn_stos) {
+    test_cpu_t vcpu_original;
+    test_cpu_t vcpu_expected;
+
+    // Test: stosb, without-rep, with-df
+    vcpu_original = {};
+    vcpu_original.gpr[REG_RAX] = 0x77;
+    vcpu_original.gpr[REG_RDI] = 0x20;
+    vcpu_original.flags = RFLAGS_DF;
+    vcpu_expected = vcpu_original;
+    vcpu_expected.gpr[REG_RDI] -= 1;
+    vcpu_expected.mem[0x20] = 0x77;
+    run("stosb", vcpu_original, vcpu_expected);
+}
+
 TEST_F(EmulatorTest, insn_xor) {
     test_f6alu<8>("xor", {
         { 0x0F, 0xF0, RFLAGS_CF,
