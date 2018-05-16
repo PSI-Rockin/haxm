@@ -31,12 +31,14 @@
 #include "include/emulate.h"
 
 /* Instruction flags */
-#define INSN_MOV     ((uint64_t)1 <<  0) /* Instruction ignores destination original value */
-#define INSN_MODRM   ((uint64_t)1 <<  1) /* Instruction expects ModRM byte */
-#define INSN_BYTEOP  ((uint64_t)1 <<  2) /* Instruction accesses 1-byte registers */
-#define INSN_GROUP   ((uint64_t)1 <<  3) /* Instruction opcode is extended via ModRM byte */
-#define INSN_REP     ((uint64_t)1 <<  4) /* Instruction supports REP prefixes */
-#define INSN_NOFLAGS ((uint64_t)1 <<  5) /* Instruction ignores flags */
+#define INSN_MOV     ((uint64_t)1 <<  0)  /* Instruction ignores destination original value */
+#define INSN_MODRM   ((uint64_t)1 <<  1)  /* Instruction expects ModRM byte */
+#define INSN_BYTEOP  ((uint64_t)1 <<  2)  /* Instruction accesses 1-byte registers */
+#define INSN_GROUP   ((uint64_t)1 <<  3)  /* Instruction opcode is extended via ModRM byte */
+#define INSN_REP     ((uint64_t)1 <<  4)  /* Instruction supports REP prefixes */
+#define INSN_REPX    ((uint64_t)1 <<  5)  /* Instruction supports REPE/REPNE prefixes */
+#define INSN_NOFLAGS ((uint64_t)1 <<  6)  /* Instruction ignores flags */
+#define INSN_STRING  (INSN_REP|INSN_REPX) /* String instruction */
 /* Implementation flags */
 #define INSN_NOTIMPL ((uint64_t)1 << 32)
 #define INSN_FASTOP  ((uint64_t)1 << 33)
@@ -787,8 +789,8 @@ em_status_t em_emulate_insn(struct em_context_t *ctxt)
 
 restart:
     // TODO: Permissions, exceptions, etc.
-    if ((opcode->flags & INSN_REP) && ctxt->rep) {
-        if (READ_GPR(REG_RCX, 8) == 0) {
+    if ((opcode->flags & INSN_STRING) && ctxt->rep) {
+        if (READ_GPR(REG_RCX, ctxt->address_size) == 0) {
             goto done;
         }
     }
@@ -844,8 +846,12 @@ restart:
         register_add(ctxt, REG_RSI, ctxt->operand_size *
             ((ctxt->rflags & RFLAGS_DF) ? -1LL : +1LL));
     }
-    if ((opcode->flags & INSN_REP) && ctxt->rep) {
+    if ((opcode->flags & INSN_STRING) && ctxt->rep) {
         register_add(ctxt, REG_RCX, -1LL);
+        if (opcode->flags & INSN_REP) {
+            decode_operands(ctxt);
+            goto restart;
+        }
         if ((ctxt->rep == PREFIX_REPNE && (ctxt->rflags & RFLAGS_ZF)) ||
             (ctxt->rep == PREFIX_REPE && !(ctxt->rflags & RFLAGS_ZF))) {
             decode_operands(ctxt);
