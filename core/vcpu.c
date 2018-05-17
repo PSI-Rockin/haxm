@@ -1932,7 +1932,7 @@ static int vcpu_emulate_insn(struct vcpu_t *vcpu)
         mode = EM_MODE_PROT64;
     else if (vcpu->state->_cs.operand_size == 1)
         mode = EM_MODE_PROT32;
-    else if (vcpu->state->_cs.operand_size == 0)
+    else
         mode = EM_MODE_PROT16;
     em_ctxt->mode = mode;
 

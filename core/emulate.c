@@ -31,15 +31,24 @@
 #include "include/emulate.h"
 
 /* Instruction flags */
-#define INSN_MOV     ((uint64_t)1 <<  0)  /* Instruction ignores destination original value */
-#define INSN_MODRM   ((uint64_t)1 <<  1)  /* Instruction expects ModRM byte */
-#define INSN_BYTEOP  ((uint64_t)1 <<  2)  /* Instruction accesses 1-byte registers */
-#define INSN_GROUP   ((uint64_t)1 <<  3)  /* Instruction opcode is extended via ModRM byte */
-#define INSN_REP     ((uint64_t)1 <<  4)  /* Instruction supports REP prefixes */
-#define INSN_REPX    ((uint64_t)1 <<  5)  /* Instruction supports REPE/REPNE prefixes */
-#define INSN_NOFLAGS ((uint64_t)1 <<  6)  /* Instruction ignores flags */
-#define INSN_STRING  (INSN_REP|INSN_REPX) /* String instruction */
-/* Implementation flags */
+/* Instruction ignores destination original value */
+#define INSN_MOV     ((uint64_t)1 <<  0)
+/* Instruction expects ModRM byte */
+#define INSN_MODRM   ((uint64_t)1 <<  1)
+/* Instruction accesses 1-byte registers */
+#define INSN_BYTEOP  ((uint64_t)1 <<  2)
+/* Instruction opcode is extended via ModRM byte */
+#define INSN_GROUP   ((uint64_t)1 <<  3)
+/* Instruction supports REP prefixes */
+#define INSN_REP     ((uint64_t)1 <<  4)
+/* Instruction supports REPE/REPNE prefixes */
+#define INSN_REPX    ((uint64_t)1 <<  5)
+/* Instruction ignores flags */
+#define INSN_NOFLAGS ((uint64_t)1 <<  6)
+/* String instruction */
+#define INSN_STRING  (INSN_REP|INSN_REPX)
+
+// Implementation flags
 #define INSN_NOTIMPL ((uint64_t)1 << 32)
 #define INSN_FASTOP  ((uint64_t)1 << 33)
 
@@ -398,6 +407,26 @@ static uint64_t insn_fetch_u64(struct em_context_t *ctxt)
     return result;
 }
 
+static int8 insn_fetch_s8(struct em_context_t *ctxt)
+{
+    return (int8)insn_fetch_u8(ctxt);
+}
+
+static int16 insn_fetch_s16(struct em_context_t *ctxt)
+{
+    return (int16)insn_fetch_u16(ctxt);
+}
+
+static int32 insn_fetch_s32(struct em_context_t *ctxt)
+{
+    return (int32)insn_fetch_u32(ctxt);
+}
+
+static int64 insn_fetch_s64(struct em_context_t *ctxt)
+{
+    return (int64)insn_fetch_u64(ctxt);
+}
+
 static void decode_prefixes(struct em_context_t *ctxt)
 {
     uint8_t b;
@@ -541,7 +570,7 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
 
         // Displacement
         if (ctxt->modrm.mod == 1) {
-            op->mem.ea += insn_fetch_u8(ctxt);
+            op->mem.ea += insn_fetch_s8(ctxt);
         }
         if (ctxt->modrm.mod == 2) {
             op->mem.ea += insn_fetch_u16(ctxt);
@@ -560,17 +589,18 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
             op->mem.ea += READ_GPR(reg_base, ctxt->address_size);
             op->mem.ea += READ_GPR(reg_index, ctxt->address_size) * scale;
         } else if (ctxt->modrm.mod == 0 && ctxt->modrm.rm == 5) {
-            op->mem.ea += insn_fetch_u32(ctxt);
+            op->mem.ea += insn_fetch_s32(ctxt);
         } else {
-            op->mem.ea += ctxt->ops->read_gpr(ctxt->vcpu, ctxt->modrm.rm, 4);
+            op->mem.ea += ctxt->ops->read_gpr(ctxt->vcpu, ctxt->modrm.rm,
+                                              ctxt->address_size);
         }
 
         // Displacement
         if (ctxt->modrm.mod == 1) {
-            op->mem.ea += insn_fetch_u8(ctxt);
+            op->mem.ea += insn_fetch_s8(ctxt);
         }
         if (ctxt->modrm.mod == 2) {
-            op->mem.ea += insn_fetch_u32(ctxt);
+            op->mem.ea += insn_fetch_s32(ctxt);
         }
     }
 }
