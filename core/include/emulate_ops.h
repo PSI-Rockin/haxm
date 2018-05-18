@@ -39,7 +39,7 @@
                     (0 * FASTOP_ALIGN))
 
 /* Instruction handlers */
-typedef void(em_handler_t)();
+typedef void(em_handler_t)(void);
 em_handler_t em_not;
 em_handler_t em_neg;
 em_handler_t em_inc;
@@ -72,7 +72,7 @@ em_handler_t em_bextr;
 em_handler_t em_andn;
 
 /* Dispatch handlers */
-void fastop_dispatch(em_handler_t handler,
-                     void *dst, void *src1, void *src2, void *flags);
+void fastop_dispatch(em_handler_t *handler, uint64_t *dst,
+                     uint64_t *src1, uint64_t *src2, uint64_t *flags);
 
 #endif /* HAX_CORE_EMULATE_OPS_H_ */

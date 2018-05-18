@@ -179,6 +179,12 @@
   <ItemGroup Label="WrappedTaskItems">
     <NASM Include="emulate_ops.asm">
       <FileType>Document</FileType>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Win8 Release|Win32'">--prefix _ %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Win8.1 Release|Win32'">--prefix _ %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Win7 Release|Win32'">--prefix _ %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Win7 Debug|Win32'">--prefix _ %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Win8.1 Debug|Win32'">--prefix _ %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Win8 Debug|Win32'">--prefix _ %(AdditionalOptions)</AdditionalOptions>
     </NASM>
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Win8 Debug|Win32'">

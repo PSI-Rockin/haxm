@@ -513,10 +513,6 @@ static void decode_op_modrm_reg(em_context_t *ctxt,
 static void decode_op_modrm_rm(em_context_t *ctxt,
                                em_operand_t *op)
 {
-    uint32_t reg_base;
-    uint32_t reg_index;
-    uint8_t scale;
-
     // Register operand
     if (ctxt->modrm.mod == 3) {
         op->type = OP_REG;
@@ -530,7 +526,7 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
     op->size = ctxt->operand_size;
     op->mem.ea = 0;
     op->mem.seg = SEG_DS;
-    if (ctxt->override_segment) {
+    if (ctxt->override_segment != SEG_NONE) {
         op->mem.seg = ctxt->override_segment;
     }
 
@@ -571,36 +567,40 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
         // Displacement
         if (ctxt->modrm.mod == 1) {
             op->mem.ea += insn_fetch_s8(ctxt);
-        }
-        if (ctxt->modrm.mod == 2) {
+        } else if (ctxt->modrm.mod == 2) {
             op->mem.ea += insn_fetch_u16(ctxt);
         }
-    }
-    if (ctxt->address_size == 4 || ctxt->address_size == 8) {
+    } else if (ctxt->address_size == 4 || ctxt->address_size == 8) {
         /* Intel SDM Vol. 2A:
          * Table 2-2. 32-Bit Addressing Forms with the ModR/M Byte */
         if (ctxt->modrm.rm == 4) {
+            uint32_t reg_base;
+            uint32_t reg_index;
+            uint8_t scale;
+
             /* Intel SDM Vol. 2A:
              * Table 2-3. 32-Bit Addressing Forms with the SIB Byte */
             ctxt->sib.value = insn_fetch_u8(ctxt);
             reg_base  = ctxt->sib.base  | (ctxt->rex.b << 3);
             reg_index = ctxt->sib.index | (ctxt->rex.x << 3);
             scale = 1 << ctxt->sib.scale;
-            op->mem.ea += READ_GPR(reg_base, ctxt->address_size);
             op->mem.ea += READ_GPR(reg_index, ctxt->address_size) * scale;
+            if ((reg_base & 7) == 5 && ctxt->modrm.mod == 0) {
+                op->mem.ea += insn_fetch_u32(ctxt);
+            } else {
+                op->mem.ea += READ_GPR(reg_base, ctxt->address_size);
+            }
         } else if (ctxt->modrm.mod == 0 && ctxt->modrm.rm == 5) {
-            op->mem.ea += insn_fetch_s32(ctxt);
+            op->mem.ea += insn_fetch_u32(ctxt);
         } else {
-            op->mem.ea += ctxt->ops->read_gpr(ctxt->vcpu, ctxt->modrm.rm,
-                                              ctxt->address_size);
+            op->mem.ea += READ_GPR(ctxt->modrm.rm, ctxt->address_size);
         }
 
         // Displacement
         if (ctxt->modrm.mod == 1) {
             op->mem.ea += insn_fetch_s8(ctxt);
-        }
-        if (ctxt->modrm.mod == 2) {
-            op->mem.ea += insn_fetch_s32(ctxt);
+        } else if (ctxt->modrm.mod == 2) {
+            op->mem.ea += insn_fetch_u32(ctxt);
         }
     }
 }
@@ -678,7 +678,7 @@ static void decode_op_si(em_context_t *ctxt,
     op->size = ctxt->operand_size;
     op->mem.ea = READ_GPR(REG_RSI, ctxt->address_size);
     op->mem.seg = SEG_DS;
-    if (ctxt->override_segment) {
+    if (ctxt->override_segment != SEG_NONE) {
         op->mem.seg = ctxt->override_segment;
     }
 }
@@ -843,7 +843,7 @@ restart:
 
     // Emulate instruction
     if (opcode->flags & INSN_FASTOP) {
-        void (*fast_handler)();
+        em_handler_t *fast_handler;
         uint64_t eflags = ctxt->rflags & RFLAGS_MASK_OSZAPC;
         fast_handler = (em_handler_t *)((uintptr_t)opcode->handler
             + FASTOP_OFFSET(ctxt->dst.size));

@@ -210,11 +210,11 @@ fastop_dispatch:
     mov reg_dst, [ebx]
     mov reg_src1, [esi]
     mov reg_src2, [edi]
-    push qword [ebp]
+    push dword [ebp]
     popf
     call stack_arg(0)
     pushf
-    pop qword [ebp]
+    pop dword [ebp]
     mov [ebx], reg_dst
     pop ebp
     pop edi
