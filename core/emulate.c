@@ -586,12 +586,12 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
             scale = 1 << ctxt->sib.scale;
             op->mem.ea += READ_GPR(reg_index, ctxt->address_size) * scale;
             if ((reg_base & 7) == 5 && ctxt->modrm.mod == 0) {
-                op->mem.ea += insn_fetch_u32(ctxt);
+                op->mem.ea += insn_fetch_s32(ctxt);
             } else {
                 op->mem.ea += READ_GPR(reg_base, ctxt->address_size);
             }
         } else if (ctxt->modrm.mod == 0 && ctxt->modrm.rm == 5) {
-            op->mem.ea += insn_fetch_u32(ctxt);
+            op->mem.ea += insn_fetch_s32(ctxt);
         } else {
             op->mem.ea += READ_GPR(ctxt->modrm.rm, ctxt->address_size);
         }
@@ -600,7 +600,7 @@ static void decode_op_modrm_rm(em_context_t *ctxt,
         if (ctxt->modrm.mod == 1) {
             op->mem.ea += insn_fetch_s8(ctxt);
         } else if (ctxt->modrm.mod == 2) {
-            op->mem.ea += insn_fetch_u32(ctxt);
+            op->mem.ea += insn_fetch_s32(ctxt);
         }
     }
 }
